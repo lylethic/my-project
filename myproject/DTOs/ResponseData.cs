@@ -38,13 +38,17 @@
     public static ResponseData<T> Success(T data, string message = "Success")
         => new(200, message, data);
 
+    public static ResponseData<T> Success(string token, DateTime? tokenExpiredTime, string message = "Success")
+      => new(200, message, token, tokenExpiredTime);
+
     public static ResponseData<T> Success(List<T> listData, string message = "Success")
         => new(200, message, listData);
+
+    public static ResponseData<T> Success(int statusCode = 200, string message = "Success")
+            => new(statusCode, message);
 
     public static ResponseData<T> Fail(string message, int statusCode = 400)
         => new(statusCode, message);
 
-    public static ResponseData<T> Success(string token, DateTime? tokenExpiredTime, string message = "Success")
-      => new(200, message, token, tokenExpiredTime);
   }
 }

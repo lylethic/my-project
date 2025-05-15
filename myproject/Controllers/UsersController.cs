@@ -7,7 +7,7 @@ namespace myproject.Controllers;
 
 [Route("api/v1/users")]
 [ApiController]
-[Authorize]
+[Authorize] // Requires authentication for all endpoints
 public class UsersController : ControllerBase
 {
   private readonly IUserService _userService;
@@ -18,59 +18,84 @@ public class UsersController : ControllerBase
   }
 
   [HttpGet]
+  [Authorize(Policy = "RequireOwnerRole")]
   public async Task<IActionResult> GetAll([FromQuery] bool? isActive = true)
   {
-    var users = await _userService.GetUsersAsync(isActive);
+    var result = await _userService.GetUsersAsync(isActive);
 
-    if (users.StatusCode != 200)
-      return NotFound(new
+    if (result.StatusCode != 200)
+      return StatusCode(result.StatusCode, new
       {
-        status = users.StatusCode,
-        message = users.Message
+        status = result.StatusCode,
+        message = result.Message
       });
 
     return Ok(new
     {
-      message = users.Message,
-      data = users.ListData
+      status = result.StatusCode,
+      message = result.Message,
+      data = result.ListData
     });
   }
 
   [HttpGet("{id}")]
   public async Task<IActionResult> GetUser(Guid id)
   {
-    var user = await _userService.GetUserAsync(id);
+    // Validate input
+    if (id == Guid.Empty)
+    {
+      return BadRequest(new { status = 400, message = "Invalid user ID" });
+    }
 
-    if (user is not null)
-      return Ok(new
-      {
-        message = user.Message,
-        data = user.Data
-      });
+    var result = await _userService.GetUserAsync(id);
 
-    return NotFound(user);
+    if (result.Data == null && result.StatusCode == 200)
+    {
+      // This handles unexpected cases where status is 200 but data is null
+      return StatusCode(500, new { status = 500, message = "Unexpected error" });
+    }
+
+    return StatusCode(result.StatusCode, new
+    {
+      status = result.StatusCode,
+      message = result.Message,
+      data = result.Data ?? new object() // Ensure data is never null
+    });
   }
 
   [HttpPost]
   public async Task<IActionResult> CreateUser(CreateUserDto entity)
   {
     if (entity is null) return BadRequest(new { message = "Please enter your information." });
-    var user = await _userService.AddUserAsync(entity);
+    var result = await _userService.AddUserAsync(entity);
 
-    if (user.StatusCode != 200) { return BadRequest(user); }
+    if (result.StatusCode != 200)
+    {
+      return StatusCode(result.StatusCode, new
+      {
+        status = result.StatusCode,
+        message = result.Message
+      });
+    }
 
     return Ok(new
     {
-      message = user.Message,
-      data = user.Data
+      status = result.StatusCode,
+      message = result.Message,
+      data = result.Data
     });
   }
 
   [HttpDelete("{id}")]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
   public async Task<IActionResult> Delete(Guid id)
   {
-    var user = await _userService.DeleteUserAsync(id);
-    if (user is null) return NotFound(user);
+    var result = await _userService.DeleteUserAsync(id);
+    if (result.StatusCode != 200) return StatusCode(result.StatusCode, new
+    {
+      status = result.StatusCode,
+      message = result.Message
+    });
 
     return NoContent();
   }
@@ -78,8 +103,8 @@ public class UsersController : ControllerBase
   [HttpPatch("{id}")]
   public async Task<IActionResult> Update(Guid id, UpdateUserDto entity)
   {
-    var user = await _userService.UpdateUserAsync(id, entity);
-    if (user.StatusCode == 404) return NotFound(user);
+    var result = await _userService.UpdateUserAsync(id, entity);
+    if (result.StatusCode == 404) return NotFound(result);
 
     return NoContent();
   }

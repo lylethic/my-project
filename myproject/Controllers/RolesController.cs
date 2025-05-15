@@ -25,20 +25,21 @@ namespace myproject.Controllers
     [HttpGet]
     public async Task<IActionResult> GetRoles()
     {
-      var role = await _roleService.GetRolesAsync();
-      if (role.StatusCode != 200)
+      var result = await _roleService.GetRolesAsync();
+      if (result.StatusCode != 200)
         return StatusCode(
-          role.StatusCode,
+          result.StatusCode,
           new
           {
-            status = role.StatusCode,
-            message = role.Message
+            status = result.StatusCode,
+            message = result.Message
           });
 
       return Ok(new
       {
-        message = role.Message,
-        data = role.ListData
+        status = result.StatusCode,
+        message = result.Message,
+        data = result.ListData
       });
     }
 
@@ -46,15 +47,16 @@ namespace myproject.Controllers
     [HttpGet("{id}")]
     public async Task<IActionResult> GetRole(Guid id)
     {
-      var role = await _roleService.GetRoleAsync(id);
-      if (role.StatusCode != 200)
-        return NotFound(role);
+      var result = await _roleService.GetRoleAsync(id);
+      if (result.StatusCode != 200)
+        return NotFound(result);
 
-      return StatusCode(role.StatusCode,
+      return StatusCode(result.StatusCode,
         new
         {
-          message = role.Message,
-          data = role.Data
+          status = result.StatusCode,
+          message = result.Message,
+          data = result.Data
         });
     }
 
@@ -64,17 +66,19 @@ namespace myproject.Controllers
     {
       if (entity is null) return BadRequest(new { message = "Please enter your role." });
 
-      var role = await _roleService.AddRoleAsync(entity);
-      if (role.StatusCode != 200) return StatusCode(role.StatusCode, new
+      var result = await _roleService.AddRoleAsync(entity);
+      if (result.StatusCode != 200) return StatusCode(result.StatusCode, new
       {
-        status = role.StatusCode,
-        message = role.Message
+        status = result.StatusCode,
+        message = result.Message
       });
 
-      return StatusCode(role.StatusCode, new
+      return StatusCode(result.StatusCode, new
       {
-        status = role.StatusCode,
-        data = role.Data
+        status = result.StatusCode,
+        message = result.Message
+        ,
+        data = result.Data
       });
     }
 
@@ -93,8 +97,8 @@ namespace myproject.Controllers
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteRole(Guid id)
     {
-      var product = await _roleService.DeleteRoleAsync(id);
-      if (product.StatusCode == 404) return NotFound(product);
+      var result = await _roleService.DeleteRoleAsync(id);
+      if (result.StatusCode == 404) return NotFound(result);
 
       return NoContent();
     }

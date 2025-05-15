@@ -7,11 +7,17 @@ using myproject.Data;
 using myproject.IRepository;
 using myproject.Repository;
 using System.Text;
+using System.Text.Json;
+using Npgsql;
+using myproject.Helpers;
+using System.Text.Json.Serialization;
+using myproject.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 var conn = builder.Configuration.GetConnectionString("DefaultConnection");
+
 builder.Services.AddDbContext<ApiDbContext>(options =>
 {
   options.UseNpgsql(conn);
@@ -25,6 +31,7 @@ builder.Services.AddAuthentication(options =>
 {
   options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
   options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+  options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
@@ -41,9 +48,22 @@ builder.Services.AddAuthentication(options =>
   };
 });
 
-builder.Services.AddAuthorization();
+// Add authorization with policy
+builder.Services.AddAuthorization(options =>
+{
+  options.AddPolicy("RequireOwnerAdminRole", policy => policy.RequireRole("Owner", "Admin"));
+  options.AddPolicy("RequireOwnerRole", policy => policy.RequireRole("Owner"));
+  options.AddPolicy("RequireAdminRole", policy => policy.RequireRole("Admin"));
+  options.AddPolicy("RequireUserRole", policy => policy.RequireRole("User"));
+});
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(x =>
+    {
+      // serialize enums as strings in api responses (e.g. Role)
+      x.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    }); ;
+
+builder.Services.AddCors();
 
 // Add API versioning
 builder.Services.AddApiVersioning(options =>
@@ -112,9 +132,18 @@ if (app.Environment.IsDevelopment())
   app.UseSwaggerUI();
 }
 
+app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+
+// global error handler
+app.UseMiddleware<ErrorHandlerMiddleware>();
+
 app.UseHttpsRedirection();
 
-app.UseAuthorization();
+// Automatically get a token from a cookie and
+//set it in the Authorization header for every request.
+app.UseMiddleware<CookieJwtInjectorMiddleware>();
+
+app.UseAuthentication();
 
 app.UseAuthorization();
 

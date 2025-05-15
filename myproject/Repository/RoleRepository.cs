@@ -17,56 +17,94 @@ namespace myproject.Repository
 
     public async Task<ResponseData<Role>> AddRoleAsync(CreateRoleDto entity)
     {
-      var nameExisting = await _context.Roles
-        .Where(x => x.Name.ToLower() == entity.Name.ToLower())
+      try
+      {
+        var nameExisting = await _context.Roles
+       .Where(x => x.Name.ToLower() == entity.Name.ToLower())
+       .FirstOrDefaultAsync();
+
+        if (nameExisting is not null)
+        {
+          return ResponseData<Role>.Fail("Role name already exists.", 400);
+        }
+
+        var role = new Role
+        {
+          Name = entity.Name,
+          Description = entity.Description
+        };
+
+        await _context.Roles.AddAsync(role);
+        await _context.SaveChangesAsync();
+
+        return ResponseData<Role>.Success(role);
+      }
+      catch (Exception ex)
+      {
+        return ResponseData<Role>.Fail("Server error.", 500);
+        throw new Exception(ex.Message);
+      }
+    }
+
+    public async Task<ResponseData<RoleDto>> GetRoleAsync(Guid id)
+    {
+      try
+      {
+        var role = await _context.Roles
+        .Where(x => x.Id == id)
+        .Select(r => new RoleDto(r.Id, r.Name, r.Description))
         .FirstOrDefaultAsync();
 
-      if (nameExisting is not null)
-      {
-        return ResponseData<Role>.Fail("Role name already exists.", 400);
+        if (role is null) return ResponseData<RoleDto>.Fail("Not found", 404);
+        return ResponseData<RoleDto>.Success(role);
       }
-
-      var Role = new Role
+      catch (System.Exception ex)
       {
-        Name = entity.Name,
-        Description = entity.Description
-      };
-
-      await _context.Roles.AddAsync(Role);
-      await _context.SaveChangesAsync();
-
-      return ResponseData<Role>.Success(Role);
+        return ResponseData<RoleDto>.Fail("Server error.", 500);
+        throw new Exception(ex.Message);
+      }
     }
 
-
-    public async Task<ResponseData<Role>> GetRoleAsync(Guid id)
+    public async Task<ResponseData<RoleDto>> GetRolesAsync()
     {
-      var find = await _context.Roles.Where(x => x.Id == id).FirstOrDefaultAsync();
-      if (find is null) return ResponseData<Role>.Fail("Not found", 404);
-      return ResponseData<Role>.Success(find);
-    }
+      try
+      {
+        var Roles = await _context.Roles
+          .Select(r => new RoleDto(r.Id, r.Name, r.Description))
+          .ToListAsync();
 
-    public async Task<ResponseData<Role>> GetRolesAsync()
-    {
-      var Roles = await _context.Roles.ToListAsync();
-      if (Roles.Count == 0)
-        return ResponseData<Role>.Fail("No Roles found", 404);
+        if (Roles.Count == 0)
+          return ResponseData<RoleDto>.Fail("No Roles found", 404);
 
-      return ResponseData<Role>.Success(Roles);
+        return ResponseData<RoleDto>.Success(Roles);
+      }
+      catch (Exception ex)
+      {
+        return ResponseData<RoleDto>.Fail("Server error.", 500);
+        throw new Exception(ex.Message);
+      }
     }
 
     public async Task<ResponseData<Role>> UpdateRoleAsync(Guid id, UpdateRoleDto entity)
     {
-      var Role = await _context.Roles.FirstOrDefaultAsync(x => x.Id == id);
-      if (Role is null) return ResponseData<Role>.Fail("Role not found", 404);
+      try
+      {
+        var Role = await _context.Roles.FirstOrDefaultAsync(x => x.Id == id);
+        if (Role is null) return ResponseData<Role>.Fail("Role not found", 404);
 
-      Role.Name = entity.Name ?? Role.Name;
-      Role.Description = entity.Description ?? Role.Description;
+        Role.Name = entity.Name ?? Role.Name;
+        Role.Description = entity.Description ?? Role.Description;
 
-      _context.Roles.Update(Role);
-      _context.SaveChanges();
+        _context.Roles.Update(Role);
+        await _context.SaveChangesAsync();
 
-      return ResponseData<Role>.Success(Role);
+        return ResponseData<Role>.Success(Role);
+      }
+      catch (Exception ex)
+      {
+        return ResponseData<Role>.Fail("Server error.", 500);
+        throw new Exception(ex.Message);
+      }
     }
 
     public async Task<ResponseData<Role>> DeleteRoleAsync(Guid id)

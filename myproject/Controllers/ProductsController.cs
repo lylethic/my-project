@@ -7,7 +7,6 @@ namespace myproject.Controllers;
 
 [Route("api/v1/products")]
 [ApiController]
-[Authorize]
 public class ProductsController : ControllerBase
 {
   private readonly IProductService _productService;
@@ -15,6 +14,15 @@ public class ProductsController : ControllerBase
   public ProductsController(IProductService product)
   {
     this._productService = product;
+  }
+
+  [HttpGet("test-conn")]
+  public IActionResult All()
+  {
+    return Ok(new
+    {
+      message = "Connection!"
+    });
   }
 
   [HttpGet]

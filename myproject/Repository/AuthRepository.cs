@@ -61,55 +61,66 @@ namespace myproject.Repository
 
     public async Task<ResponseData<AuthResponse>> Login(AuthenticateDto model)
     {
-      // Find the user by email
-      var user = await _context.Users
-          .Include(u => u.Role)
-          .FirstOrDefaultAsync(u => u.Email == model.Email && u.IsActive && u.DeletedAt == null);
-
-      if (user == null)
+      try
       {
-        return new ResponseData<AuthResponse>
+        var user = await _context.Users
+         .Include(u => u.Role)
+         .FirstOrDefaultAsync(u => u.Email == model.Email && u.IsActive && u.DeletedAt == null);
+
+        if (user == null)
         {
-          StatusCode = 400,
-          Message = "Invalid email or password",
-          Data = null
-        };
-      }
+          return new ResponseData<AuthResponse>
+          {
+            StatusCode = 400,
+            Message = "Invalid email or password"
+          };
+        }
 
-      // Verify the password using your existing method
-      if (!VerifyPassword(user, model.Password))
-      {
-        return new ResponseData<AuthResponse>
+        // Verify the password using your existing method
+        if (!VerifyPassword(user, model.Password) || !Helpers.Utils.IsValidEmail(model.Email))
         {
-          StatusCode = 422,
-          Message = "Invalid email or password",
-          Data = null
+          return new ResponseData<AuthResponse>
+          {
+            StatusCode = 422,
+            Message = "Invalid email or password"
+          };
+        }
+
+        // Generate claims for the JWT token
+        // Include enough information to identify the user without database lookups
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Name, user.Name),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(ClaimTypes.Role, user.Role.Name ?? user.RoleId.ToString())
         };
+
+        // Generate access token
+        var accessToken = GenerateAccessToken(claims);
+        var tokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
+        // Set cookies for both tokens
+        SetJWTTokenCookie(accessToken, tokenExpiredTime);
+
+        return ResponseData<AuthResponse>.Success(accessToken, tokenExpiredTime);
       }
-
-      // Generate claims for the JWT token
-      // Include enough information to identify the user without database lookups
-      var claims = new List<Claim>
+      catch (Exception ex)
       {
-          new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-          new Claim(ClaimTypes.Name, user.Name),
-          new Claim(ClaimTypes.Email, user.Email),
-          new Claim("Role", user.RoleId.ToString())
-      };
-
-      // Generate access token
-      var accessToken = GenerateAccessToken(claims);
-      var tokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
-      // Set cookies for both tokens
-      SetJWTTokenCookie(accessToken);
-
-      return ResponseData<AuthResponse>.Success(accessToken, tokenExpiredTime);
+        return ResponseData<AuthResponse>.Fail("Server error.", 500);
+        throw new Exception(ex.Message);
+      }
     }
 
     public ResponseData<AuthResponse> RefreshToken(string oldToken)
     {
       var tokenHandler = new JwtSecurityTokenHandler();
-      var key = Encoding.ASCII.GetBytes(_config["AuthConfiguration:Key"]);
+
+      var secretKey = _config["AuthConfiguration:Key"];
+      if (string.IsNullOrEmpty(secretKey))
+      {
+        throw new InvalidOperationException("JWT secret key is missing in configuration.");
+      }
+      var key = Encoding.ASCII.GetBytes(secretKey);
 
       try
       {
@@ -142,7 +153,7 @@ namespace myproject.Repository
         var newExpireTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
 
         // Set cookie or return token depending on your needs
-        SetJWTTokenCookie(newAccessToken);
+        SetJWTTokenCookie(newAccessToken, newExpireTime);
 
         return ResponseData<AuthResponse>.Success(newAccessToken, newExpireTime);
       }
@@ -154,25 +165,64 @@ namespace myproject.Repository
           Message = "Token is invalid or tampered",
           Data = null
         };
+        throw new Exception(ex.Message);
       }
     }
 
     public Task<ResponseData<UserDto>> Logout()
     {
-      throw new NotImplementedException();
+      var context = _httpContextAccessor.HttpContext;
+      if (context == null)
+      {
+        return Task.FromResult(ResponseData<UserDto>.Fail("HttpContext not found", 500));
+      }
+
+      var expiredOptions = new CookieOptions
+      {
+        Expires = DateTime.UtcNow.AddDays(-1),
+        Secure = true,
+        HttpOnly = true,
+        SameSite = SameSiteMode.Strict
+      };
+
+      context.Response.Cookies.Append("access_token", "", expiredOptions);
+
+      var readableExpireOptions = new CookieOptions
+      {
+        Expires = DateTime.UtcNow.AddDays(-1),
+        Secure = true,
+        HttpOnly = false,
+        SameSite = SameSiteMode.Strict
+      };
+      context.Response.Cookies.Append("access_token_expire", "", readableExpireOptions);
+
+      return Task.FromResult(ResponseData<UserDto>.Success(200, "Logout successful"));
     }
 
-    private void SetJWTTokenCookie(string token)
+    private void SetJWTTokenCookie(string token, DateTime expireTime)
     {
       var cookieOptions = new CookieOptions
       {
         HttpOnly = true,
-        Expires = DateTime.UtcNow.AddHours(Convert.ToDouble(_config["AuthConfiguration:TokenExpiredTime"])),
+        Expires = expireTime,
         Secure = true,
         SameSite = SameSiteMode.Strict
       };
 
+      // Set access_token
       _httpContextAccessor.HttpContext?.Response.Cookies.Append("access_token", token, cookieOptions);
+
+      // Set custom expire_time cookie (readable on client if needed)
+      var readableExpireOptions = new CookieOptions
+      {
+        HttpOnly = false, // allow JavaScript to read it (optional)
+        Expires = expireTime,
+        Secure = true,
+        SameSite = SameSiteMode.Strict
+      };
+
+      _httpContextAccessor.HttpContext?.Response.Cookies.Append("access_token_expire", expireTime.ToString("o"), readableExpireOptions);
     }
+
   }
 }

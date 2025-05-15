@@ -20,10 +20,28 @@ namespace myproject.Controllers
     [HttpPost]
     public async Task<IActionResult> Login(AuthenticateDto model)
     {
-      var auth = await _auth.Login(model);
-      return Ok(auth);
+      if (!ModelState.IsValid)
+        return BadRequest(new { status = 400, message = "Please enter your account!" });
+
+      var result = await _auth.Login(model);
+      if (result.StatusCode != 200)
+      {
+        return StatusCode(result.StatusCode, new
+        {
+          status = result.StatusCode,
+          message = result.Message
+        });
+      }
+      return Ok(new
+      {
+        status = result.StatusCode,
+        message = result.Message,
+        token = result.Token,
+        expireTime = result.TokenExpiredTime
+      });
     }
 
+    [Authorize]
     [HttpPost("refresh-token")]
     public IActionResult RefreshToken([FromBody] string token)
     {
@@ -31,5 +49,16 @@ namespace myproject.Controllers
       return Ok(result);
     }
 
+    [Authorize]
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+      _auth.Logout();
+      return Ok(new
+      {
+        status = 200,
+        message = "Logged out"
+      });
+    }
   }
 }
