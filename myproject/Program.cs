@@ -51,10 +51,10 @@ builder.Services.AddAuthentication(options =>
 // Add authorization with policy
 builder.Services.AddAuthorization(options =>
 {
-  options.AddPolicy("RequireOwnerAdminRole", policy => policy.RequireRole("Owner", "Admin"));
-  options.AddPolicy("RequireOwnerRole", policy => policy.RequireRole("Owner"));
-  options.AddPolicy("RequireAdminRole", policy => policy.RequireRole("Admin"));
-  options.AddPolicy("RequireUserRole", policy => policy.RequireRole("User"));
+  options.AddPolicy("RequireOwnerAdminRole", policy => policy.RequireRole("owner", "admin"));
+  options.AddPolicy("RequireOwnerRole", policy => policy.RequireRole("owner"));
+  options.AddPolicy("RequireAdminRole", policy => policy.RequireRole("admin"));
+  options.AddPolicy("RequireUserRole", policy => policy.RequireRole("user"));
 });
 
 builder.Services.AddControllers().AddJsonOptions(x =>

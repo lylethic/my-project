@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using myproject.Data;
 using myproject.DTOs;
 using myproject.Entities;
+using myproject.Helpers;
 using myproject.IRepository;
 using Npgsql;
 
@@ -27,30 +28,95 @@ namespace myproject.Repository
       return _passwordHasher.HashPassword(user, plainPassword);
     }
 
-    public async Task<ResponseData<UserDto>> GetUsersAsync(bool? isActive = true)
+    public async Task<ResponseData<PaginatedResponse<UserDto>>> GetUsersAsync(QueryParameters parameters)
     {
       try
       {
-        var users = await _context.Users
-        .Where(u => u.IsActive == isActive)
-        .Select(u => new UserDto(u.Id, u.RoleId, u.Name, u.Email))
-        .ToListAsync();
+        // Base query
+        var query = _context.Users.AsQueryable();
 
+        // Apply filtering
+        if (parameters.IsActive.HasValue)
+          query = query.Where(u => u.IsActive == parameters.IsActive.Value);
+
+        // Apply search if SearchTerm is provided
+        if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+        {
+          var searchTerm = parameters.SearchTerm.ToLower();
+          query = query.Where(u =>
+              u.Name.ToLower().Contains(searchTerm) ||
+              u.Email.ToLower().Contains(searchTerm)
+          );
+        }
+
+        // Calculate total records BEFORE pagination
+        int totalRecords = await query.CountAsync();
+
+        // Apply sorting
+        if (!string.IsNullOrWhiteSpace(parameters.SortBy))
+        {
+          query = parameters.SortBy.ToLower() switch
+          {
+            "name" => parameters.SortDescending
+                     ? query.OrderByDescending(u => u.Name)
+                     : query.OrderBy(u => u.Name),
+            "email" => parameters.SortDescending
+                      ? query.OrderByDescending(u => u.Email)
+                      : query.OrderBy(u => u.Email),
+            "createdat" => parameters.SortDescending
+                          ? query.OrderByDescending(u => u.CreatedAt)
+                          : query.OrderBy(u => u.CreatedAt),
+            _ => parameters.SortDescending
+                 ? query.OrderByDescending(u => u.Id)
+                 : query.OrderBy(u => u.Id) // Default sort by Id
+          };
+        }
+        else
+        {
+          // Default sorting by Id if no sort field specified
+          query = query.OrderBy(u => u.Id);
+        }
+
+        // Apply pagination
+        var users = await query
+            .Skip((parameters.Page - 1) * parameters.PageSize)
+            .Take(parameters.PageSize)
+            .Select(u => new UserDto(
+                u.Id,
+                u.RoleId,
+                u.Name,
+                u.Email
+            ))
+            .ToListAsync();
+
+        // Create paginated response
+        var paginatedResponse = new PaginatedResponse<UserDto>
+        {
+          Items = users,
+          TotalItems = totalRecords,
+          PageNumber = parameters.Page,
+          PageSize = parameters.PageSize
+        };
+
+        // If no users found
         if (users.Count == 0)
-          return ResponseData<UserDto>.Fail("No users found.", 404);
+          return ResponseData<PaginatedResponse<UserDto>>.Fail("No users found.", 404);
 
-        return ResponseData<UserDto>.Success(users);
+        return ResponseData<PaginatedResponse<UserDto>>.Success(paginatedResponse);
       }
-      catch (NpgsqlException ex)
+      catch (DbUpdateException dbEx)
       {
-        // Log ex.Message if needed
-        return ResponseData<UserDto>.Fail("Database connection failed.", 500);
-        throw new Exception(ex.Message);
+        throw new AppException($"Database error occurred while retrieving users: {dbEx.Message}");
+      }
+      catch (InvalidOperationException ioEx)
+      {
+        throw new AppException($"Invalid operation while retrieving users: {ioEx.Message}");
       }
       catch (Exception ex)
       {
-        return ResponseData<UserDto>.Fail("Server error", 500);
-        throw new Exception(ex.Message);
+        // Log the exception
+        return ResponseData<PaginatedResponse<UserDto>>.Fail("Error retrieving users", 500);
+        throw new AppException($"An error occurred while retrieving users: {ex.Message}");
       }
     }
 
@@ -93,7 +159,7 @@ namespace myproject.Repository
       try
       {
         // Custom Email Format Check
-        if (!Helpers.Utils.IsValidEmail(entity.Email))
+        if (!Utils.IsValidEmail(entity.Email))
         {
           return ResponseData<User>.Fail("Invalid email format!", 400);
         }

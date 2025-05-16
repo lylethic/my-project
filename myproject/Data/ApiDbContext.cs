@@ -17,6 +17,14 @@ public class ApiDbContext : DbContext
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     modelBuilder.Ignore<Product>(); // This ensures Product is excluded
-  }
 
+    modelBuilder.Entity<User>()
+               .HasIndex(u => u.Name)
+               .HasDatabaseName("IX_User_Name");
+
+    modelBuilder.Entity<User>()
+        .HasIndex(u => u.Email)
+        .IsUnique()
+        .HasDatabaseName("IX_User_Email");
+  }
 }

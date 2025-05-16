@@ -7,6 +7,7 @@ namespace myproject.Controllers;
 
 [Route("api/v1/products")]
 [ApiController]
+[Authorize]
 public class ProductsController : ControllerBase
 {
   private readonly IProductService _productService;
@@ -14,15 +15,6 @@ public class ProductsController : ControllerBase
   public ProductsController(IProductService product)
   {
     this._productService = product;
-  }
-
-  [HttpGet("test-conn")]
-  public IActionResult All()
-  {
-    return Ok(new
-    {
-      message = "Connection!"
-    });
   }
 
   [HttpGet]
@@ -61,6 +53,7 @@ public class ProductsController : ControllerBase
   }
 
   [HttpPost]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
   public async Task<IActionResult> CreateProduct(CreateProductDto entity)
   {
     if (entity is null) return BadRequest(new { message = "Please enter your product." });
@@ -80,6 +73,7 @@ public class ProductsController : ControllerBase
   }
 
   [HttpPut("{id}")]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
   public async Task<IActionResult> UpdateProduct(Guid id, UpdateProductDto entity)
   {
     var product = await _productService.UpdateProductAsync(id, entity);
@@ -90,6 +84,7 @@ public class ProductsController : ControllerBase
   }
 
   [HttpDelete("{id}")]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
   public async Task<IActionResult> DeleteProduct(Guid id)
   {
     var product = await _productService.DeleteProductAsync(id);

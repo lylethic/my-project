@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using myproject.DTOs;
 using myproject.IRepository;
@@ -6,6 +7,7 @@ namespace myproject.Controllers
 {
   [Route("api/v1/roles")]
   [ApiController]
+  [Authorize]
   /// <summary> Key Points 
   /// Roles DELETE because it removes a resource.
   /// Returns 204 No Content on success.
@@ -23,6 +25,7 @@ namespace myproject.Controllers
 
     // GET: api/v1/roles
     [HttpGet]
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     public async Task<IActionResult> GetRoles()
     {
       var result = await _roleService.GetRolesAsync();
@@ -62,6 +65,7 @@ namespace myproject.Controllers
 
     // POST: api/v1/roles
     [HttpPost]
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     public async Task<IActionResult> CreateRole(CreateRoleDto entity)
     {
       if (entity is null) return BadRequest(new { message = "Please enter your role." });
@@ -84,6 +88,7 @@ namespace myproject.Controllers
 
     // PUT: api/v1/roles/{id}
     [HttpPut("{id}")]
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     public async Task<IActionResult> UpdateRole(Guid id, UpdateRoleDto entity)
     {
       var role = await _roleService.UpdateRoleAsync(id, entity);
@@ -95,6 +100,7 @@ namespace myproject.Controllers
 
     // DELETE: api/v1/roles/{id}
     [HttpDelete("{id}")]
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     public async Task<IActionResult> DeleteRole(Guid id)
     {
       var result = await _roleService.DeleteRoleAsync(id);
