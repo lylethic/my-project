@@ -19,9 +19,9 @@ public class UsersController : ControllerBase
 
   [HttpGet]
   [Authorize(Policy = "RequireOwnerRole")]
-  public async Task<IActionResult> GetAll([FromQuery] bool? isActive = true)
+  public async Task<IActionResult> GetAll([FromQuery] QueryParameters parameters)
   {
-    var result = await _userService.GetUsersAsync(isActive);
+    var result = await _userService.GetUsersAsync(parameters);
 
     if (result.StatusCode != 200)
       return StatusCode(result.StatusCode, new
@@ -34,7 +34,17 @@ public class UsersController : ControllerBase
     {
       status = result.StatusCode,
       message = result.Message,
-      data = result.ListData
+      data = new
+      {
+        users = result.Data?.Items,
+        pagination = new
+        {
+          totalItems = result.Data?.TotalItems,
+          pageNumber = result.Data?.PageNumber,
+          pageSize = result.Data?.PageSize,
+          totalPages = result.Data?.TotalPages
+        }
+      }
     });
   }
 
