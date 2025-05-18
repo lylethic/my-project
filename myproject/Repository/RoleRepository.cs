@@ -70,6 +70,7 @@ namespace myproject.Repository
       try
       {
         var Roles = await _context.Roles
+          .AsNoTracking()
           .Select(r => new RoleDto(r.Id, r.Name, r.Description))
           .ToListAsync();
 

@@ -63,6 +63,8 @@ builder.Services.AddControllers().AddJsonOptions(x =>
       x.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     }); ;
 
+builder.Services.AddResponseCaching();
+
 builder.Services.AddCors();
 
 // Add API versioning
@@ -77,7 +79,7 @@ builder.Services.AddApiVersioning(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-  c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+  c.SwaggerDoc("v1", new OpenApiInfo
   {
     Title = "My API",
     Version = "v1"
@@ -113,6 +115,7 @@ builder.Services.AddSwaggerGen(c =>
 
 // Add HttpContextAccessor service
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
 
 // DI
 builder.Services.AddScoped<IAuth, AuthRepository>();
@@ -148,5 +151,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.UseResponseCaching();
 
 app.Run();

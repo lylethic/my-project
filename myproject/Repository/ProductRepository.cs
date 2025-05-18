@@ -50,8 +50,11 @@ namespace myproject.Repository
 
     public async Task<ResponseData<Product>> GetProductsAsync()
     {
-      var products = await _context.Products.ToListAsync();
-      if (!products.Any())
+      var products = await _context.Products
+        .AsNoTracking()
+        .ToListAsync();
+
+      if (products.Count == 0)
         return ResponseData<Product>.Fail("No products found", 404);
 
       return ResponseData<Product>.Success(products);

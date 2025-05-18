@@ -118,4 +118,47 @@ public class UsersController : ControllerBase
 
     return NoContent();
   }
+
+  [Authorize(Policy = "RequireOwnerAdminRole")]
+  [HttpPost("import")]
+  public async Task<IActionResult> ImportUsers(IFormFile file)
+  {
+
+    if (file == null || file.Length == 0)
+      return BadRequest("No file uploaded.");
+
+    using var stream = file.OpenReadStream();
+    var result = await _userService.AddUsersFromExcelAsync(stream);
+
+    if (result.StatusCode == 200)
+      return Ok(new
+      {
+        status = result.StatusCode,
+        message = result.Message
+      });
+
+    return StatusCode(result.StatusCode, new
+    {
+      status = result.StatusCode,
+      message = result.Message
+    });
+  }
+
+  [Authorize(Policy = "RequireOwnerAdminRole")]
+  [HttpGet("export")]
+  public async Task<IActionResult> ExportUsersToExcel([FromQuery] int take = 20, [FromQuery] Guid? roleId = null)
+  {
+    try
+    {
+      var fileBytes = await _userService.ExportUsersToExcelAsync(take, roleId);
+
+      var fileName = $"users_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+      return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+    catch (Exception ex)
+    {
+      return StatusCode(500, new { message = "Internal server error while exporting users." });
+      throw new Exception(ex.Message);
+    }
+  }
 }

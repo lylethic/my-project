@@ -1,6 +1,9 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using myproject.Data;
 using myproject.DTOs;
 using myproject.Entities;
@@ -13,10 +16,21 @@ namespace myproject.Repository
   public class UserRepository : IUserService
   {
     private readonly ApiDbContext _context;
+    private readonly IMemoryCache _cache;
+    private readonly IConfiguration _config;
+    private readonly ILogger<UserRepository> _logger;
+    private readonly MemoryCacheEntryOptions _cacheOptions;
 
-    public UserRepository(ApiDbContext context)
+    public UserRepository(ApiDbContext context, IMemoryCache cache, IConfiguration configuration, ILogger<UserRepository> logger)
     {
       this._context = context;
+      this._cache = cache;
+      this._config = configuration;
+      this._logger = logger;
+
+      _cacheOptions = new MemoryCacheEntryOptions()
+               .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+               .SetSlidingExpiration(TimeSpan.FromMinutes(2));
     }
 
     // PasswordHasher: base64, salt, hashed password
@@ -79,6 +93,7 @@ namespace myproject.Repository
 
         // Apply pagination
         var users = await query
+            .AsNoTracking()
             .Skip((parameters.Page - 1) * parameters.PageSize)
             .Take(parameters.PageSize)
             .Select(u => new UserDto(
@@ -120,37 +135,58 @@ namespace myproject.Repository
       }
     }
 
-    public async Task<ResponseData<UserDto>> GetUserAsync(Guid id)
+    public async Task<ResponseData<User>> GetUserAsync(Guid id)
     {
+      var stopwatch = new Stopwatch();
+      stopwatch.Start();
+      string cacheKey = $"user-{id}";
+
+      if (_cache.TryGetValue(cacheKey, out User? cachedUser)) // Notice the type UserDto?
+      {
+        stopwatch.Stop();
+        _logger.LogInformation("User {UserId} found in cache. Time taken: {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+        if (cachedUser != null) // It's possible to cache a null if you want to cache "not found"
+        {
+          return ResponseData<User>.Success(cachedUser);
+        }
+        // If you cache "not found" as null, you might want to return a specific response here.
+        // For this example, we assume only successfully retrieved users are cached.
+      }
+
+      _logger.LogInformation("User {UserId} not found in cache. Fetching from database.", id);
+
       try
       {
         var user = await _context.Users
             .Where(u => u.Id == id)
-            .Select(u => new UserDto
-            (
-               u.Id,
-               u.RoleId,
-               u.Name ?? string.Empty, // Handle null Name
-               u.Email ?? string.Empty // Handle null Email
-            ))
+            .Include(x => x.Role)
             .FirstOrDefaultAsync();
 
-        if (user == null)
-          return ResponseData<UserDto>.Fail("User not found", 404);
+        stopwatch.Stop();
 
-        return ResponseData<UserDto>.Success(user);
+        if (user == null)
+        {
+          _logger.LogWarning("User {UserId} not found in database. Time taken: {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+          return ResponseData<User>.Fail("User not found", 404);
+        }
+
+        // 3. Add the fetched user to the cache
+        _cache.Set(cacheKey, user, _cacheOptions);
+        _logger.LogInformation("User {UserId} fetched from database and cached. Time taken: {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+
+        return ResponseData<User>.Success(user);
       }
-      catch (NpgsqlException ex)
+      catch (NpgsqlException ex) // Be specific with database exceptions if possible
       {
-        // Log database errors properly
-        Console.WriteLine($"Database error: {ex.Message}");
-        return ResponseData<UserDto>.Fail("Database error", 500);
+        stopwatch.Stop();
+        _logger.LogError(ex, "Database error while fetching user {UserId}. Time taken: {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+        return ResponseData<User>.Fail("Database error", 500);
       }
       catch (Exception ex)
       {
-        // Log general errors
-        Console.WriteLine($"Error: {ex}");
-        return ResponseData<UserDto>.Fail("An error occurred", 500);
+        stopwatch.Stop();
+        _logger.LogError(ex, "An error occurred while fetching user {UserId}. Time taken: {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+        return ResponseData<User>.Fail("An error occurred", 500);
       }
     }
 
@@ -254,6 +290,106 @@ namespace myproject.Repository
         throw new Exception(ex.Message);
       }
     }
+
+    public async Task<ResponseData<int>> AddUsersFromExcelAsync(Stream excelStream)
+    {
+      try
+      {
+        var workbook = new XLWorkbook(excelStream);
+        var worksheet = workbook.Worksheets.First();
+
+        int addedCount = 0;
+        var rows = worksheet.RowsUsed().Skip(1); // Skip header row
+
+        foreach (var row in rows)
+        {
+          var roleIdCell = row.Cell(1).GetString();
+          var name = row.Cell(2).GetString();
+          var email = row.Cell(3).GetString();
+          var password = row.Cell(4).GetString();
+
+          if (!Guid.TryParse(roleIdCell, out Guid roleId))
+          {
+            _logger.LogWarning($"Invalid RoleId '{roleIdCell}' at row {row.RowNumber()}");
+            continue;
+          }
+
+          var userDto = new CreateUserDto(roleId, name, email, password);
+
+          var result = await AddUserAsync(userDto);
+          if (result.StatusCode == 200)
+          {
+            addedCount++;
+          }
+          else
+          {
+            _logger.LogWarning($"Failed to add user at row {row.RowNumber()}: {result.Message}");
+          }
+        }
+
+        return ResponseData<int>.Success(200, $"{addedCount} users added successfully.");
+      }
+      catch (Exception ex)
+      {
+        _logger.LogError(ex, "Error importing users from Excel.");
+        return ResponseData<int>.Fail("Error importing users.", 500);
+      }
+    }
+
+    public async Task<byte[]> ExportUsersToExcelAsync(int take = 20, Guid? roleId = null)
+    {
+      await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted);
+
+      try
+      {
+        var query = _context.Users.AsQueryable();
+
+        if (roleId.HasValue)
+        {
+          query = query.Where(u => u.RoleId == roleId.Value);
+        }
+
+        var users = await query
+            .Include(u => u.Role)
+            .OrderByDescending(u => u.CreatedAt)
+            .Take(take)
+            .ToListAsync();
+
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Users");
+
+        // Header row
+        worksheet.Cell(1, 1).Value = "Id";
+        worksheet.Cell(1, 2).Value = "Name";
+        worksheet.Cell(1, 3).Value = "Email";
+        worksheet.Cell(1, 4).Value = "Role";
+
+        int row = 2;
+        foreach (var user in users)
+        {
+          worksheet.Cell(row, 1).Value = user.Id.ToString();
+          worksheet.Cell(row, 2).Value = user.Name;
+          worksheet.Cell(row, 3).Value = user.Email;
+          worksheet.Cell(row, 4).Value = user.Role?.Name ?? user.RoleId.ToString();
+          row++;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+
+        // Commit the transaction (even though it's read-only, this confirms scope ends cleanly)
+        await transaction.CommitAsync();
+
+        return stream.ToArray();
+      }
+      catch (Exception ex)
+      {
+        await transaction.RollbackAsync();
+        _logger.LogError(ex, "Error exporting users to Excel.");
+        throw;
+      }
+    }
+
   }
 }
 
