@@ -6,6 +6,8 @@
     public int StatusCode { get; set; } = 204;
     public string? Token { get; set; }
     public DateTime? TokenExpiredTime { get; set; }
+    public string? RefreshToken { get; set; }
+    public DateTime? RefreshTokenExpiredTime { get; set; }
     public T? Data { get; set; } = default;
     public List<T>? ListData { get; set; } = new();
 
@@ -34,12 +36,20 @@
       TokenExpiredTime = tokenExpiredTime;
     }
 
+    public ResponseData(int status, string message, string token, DateTime? tokenExpiredTime, string refreshToken, DateTime? refreshTokenExpiredTime) : this(status, message)
+    {
+      Token = token;
+      TokenExpiredTime = tokenExpiredTime;
+      RefreshToken = refreshToken;
+      RefreshTokenExpiredTime = refreshTokenExpiredTime;
+    }
+
     // Static Helpers (optional)
     public static ResponseData<T> Success(T data, string message = "Success")
         => new(200, message, data);
 
-    public static ResponseData<T> Success(string token, DateTime? tokenExpiredTime, string message = "Success")
-      => new(200, message, token, tokenExpiredTime);
+    public static ResponseData<T> Success(string token, DateTime? tokenExpiredTime, string refreshToken, DateTime? refreshTokenExpiredTime, string message = "Success")
+      => new(200, message, token, tokenExpiredTime, refreshToken, refreshTokenExpiredTime);
 
     public static ResponseData<T> Success(List<T> listData, string message = "Success")
         => new(200, message, listData);
@@ -49,6 +59,5 @@
 
     public static ResponseData<T> Fail(string message, int statusCode = 400)
         => new(statusCode, message);
-
   }
 }

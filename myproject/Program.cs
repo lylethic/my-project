@@ -126,6 +126,11 @@ builder.Services.AddScoped<IRoleService, RoleRepository>();
 // Set the URL to listen on port 5001 https://localhost:5001
 // builder.WebHost.UseUrls("https://localhost:5001");
 
+// Add logging configuration
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole(); // Logs to terminal
+builder.Logging.AddDebug();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -145,6 +150,7 @@ app.UseHttpsRedirection();
 // Automatically get a token from a cookie and
 //set it in the Authorization header for every request.
 app.UseMiddleware<CookieJwtInjectorMiddleware>();
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.UseAuthentication();
 

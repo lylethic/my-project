@@ -16,7 +16,7 @@ public class ApiDbContext : DbContext
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
-    modelBuilder.Ignore<Product>(); // This ensures Product is excluded
+    // modelBuilder.Ignore<Product>(); // This ensures Product is excluded
 
     modelBuilder.Entity<User>()
                .HasIndex(u => u.Name)

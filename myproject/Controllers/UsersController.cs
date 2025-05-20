@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using myproject.DTOs;
@@ -11,24 +12,31 @@ namespace myproject.Controllers;
 public class UsersController : ControllerBase
 {
   private readonly IUserService _userService;
+  private readonly ILogger<UsersController> _logger;
 
-  public UsersController(IUserService userService)
+  public UsersController(IUserService userService, ILogger<UsersController> logger)
   {
     this._userService = userService;
+    this._logger = logger;
   }
 
   [HttpGet]
   [Authorize(Policy = "RequireOwnerRole")]
   public async Task<IActionResult> GetAll([FromQuery] QueryParameters parameters)
   {
+    var stopwatch = Stopwatch.StartNew();
+    _logger.LogInformation("GET /api/v1/users called with query: {@Parameters}", parameters);
+
     var result = await _userService.GetUsersAsync(parameters);
 
+    stopwatch.Stop();
+    _logger.LogInformation("GET /api/v1/users completed in {ElapsedMilliseconds}ms", stopwatch.ElapsedMilliseconds);
+
     if (result.StatusCode != 200)
-      return StatusCode(result.StatusCode, new
-      {
-        status = result.StatusCode,
-        message = result.Message
-      });
+    {
+      _logger.LogWarning("GET /api/v1/users returned {StatusCode}: {Message}", result.StatusCode, result.Message);
+      return StatusCode(result.StatusCode, new { status = result.StatusCode, message = result.Message });
+    }
 
     return Ok(new
     {
@@ -51,6 +59,8 @@ public class UsersController : ControllerBase
   [HttpGet("{id}")]
   public async Task<IActionResult> GetUser(Guid id)
   {
+    var stopwatch = Stopwatch.StartNew();
+    _logger.LogInformation("GET /api/v1/user/@{Id} called with query: {@Id}", id);
     // Validate input
     if (id == Guid.Empty)
     {
@@ -59,10 +69,14 @@ public class UsersController : ControllerBase
 
     var result = await _userService.GetUserAsync(id);
 
-    if (result.Data == null && result.StatusCode == 200)
+    stopwatch.Stop();
+    _logger.LogInformation("GET /api/v1/user completed in {ElapsedMilliseconds}ms", stopwatch.ElapsedMilliseconds);
+
+    if (result.StatusCode != 200)
     {
       // This handles unexpected cases where status is 200 but data is null
-      return StatusCode(500, new { status = 500, message = "Unexpected error" });
+      _logger.LogWarning("GET /api/v1/user returned {StatusCode}: {Message}", result.StatusCode, result.Message);
+      return StatusCode(500, new { status = 500, message = result.Message });
     }
 
     return StatusCode(result.StatusCode, new
@@ -74,6 +88,7 @@ public class UsersController : ControllerBase
   }
 
   [HttpPost]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
   public async Task<IActionResult> CreateUser(CreateUserDto entity)
   {
     if (entity is null) return BadRequest(new { message = "Please enter your information." });
@@ -93,6 +108,20 @@ public class UsersController : ControllerBase
       status = result.StatusCode,
       message = result.Message,
       data = result.Data
+    });
+  }
+
+  [HttpPost("bulk")]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
+  public async Task<IActionResult> CreateUsers(IEnumerable<CreateUserDto> entities)
+  {
+    if (entities is null) return BadRequest(new { message = "Please enter your information." });
+    var result = await _userService.AddUsersAsync(entities);
+
+    return StatusCode(result.StatusCode, new
+    {
+      status = result.StatusCode,
+      message = result.Message
     });
   }
 

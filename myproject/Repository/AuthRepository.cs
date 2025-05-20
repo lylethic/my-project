@@ -7,6 +7,7 @@ using myproject.Entities;
 using myproject.IRepository;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace myproject.Repository
@@ -19,9 +20,9 @@ namespace myproject.Repository
 
     public AuthRepository(ApiDbContext context, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
     {
-      this._context = context;
-      this._config = configuration;
-      this._httpContextAccessor = httpContextAccessor;
+      this._context = context ?? throw new ArgumentNullException(nameof(context));
+      this._config = configuration ?? throw new ArgumentNullException(nameof(configuration));
+      this._httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
     }
 
     private readonly PasswordHasher<User> _passwordHasher = new();
@@ -42,7 +43,6 @@ namespace myproject.Repository
     public string GenerateAccessToken(IEnumerable<Claim> claims)
     {
       var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["AuthConfiguration:Key"]!));
-
       var signinCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
 
       // Create a JWT
@@ -51,12 +51,40 @@ namespace myproject.Repository
         audience: _config["AuthConfiguration:Audience"],
         claims: claims,
         signingCredentials: signinCredentials,
-        expires: DateTime.UtcNow.AddHours(Convert.ToDouble(_config["AuthConfiguration:TokenExpiredTime"]))
+        expires: DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]))
         );
 
       var tokenString = new JwtSecurityTokenHandler().WriteToken(tokeOptions);
-
       return tokenString;
+    }
+
+    public string GenerateRefreshToken()
+    {
+      var randomNumber = new byte[32];
+      using (var rng = RandomNumberGenerator.Create())
+      {
+        rng.GetBytes(randomNumber);
+        return Convert.ToBase64String(randomNumber);
+      }
+    }
+
+    public ClaimsPrincipal GetPrincipalFromExpiredToken(string token)
+    {
+      var tokenValidationParameters = new TokenValidationParameters
+      {
+        ValidateAudience = false, // might be validate the audience and issuer
+        ValidateIssuer = false,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["AuthConfiguration:Key"]!)),
+        ValidateLifetime = false // here saying that we don't care about the token's expiration date
+      };
+      var tokenHandler = new JwtSecurityTokenHandler();
+      SecurityToken securityToken;
+      var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
+      var jwtSecurityToken = securityToken as JwtSecurityToken;
+      if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+        throw new SecurityTokenException("Invalid token");
+      return principal;
     }
 
     public async Task<ResponseData<AuthResponse>> Login(AuthenticateDto model)
@@ -100,9 +128,13 @@ namespace myproject.Repository
         var accessToken = GenerateAccessToken(claims);
         var tokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
         // Set cookies for both tokens
-        SetJWTTokenCookie(accessToken, tokenExpiredTime);
+        SetJWTTokenCookie("access_token", "access_token_expire", accessToken, tokenExpiredTime);
 
-        return ResponseData<AuthResponse>.Success(accessToken, tokenExpiredTime);
+        var refreshToken = GenerateRefreshToken();
+        var refreshTokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenRefreshExpiredTime"]));
+        SetJWTTokenCookie("refresh_token", "refresh_token_expire", refreshToken, refreshTokenExpiredTime);
+
+        return ResponseData<AuthResponse>.Success(accessToken, tokenExpiredTime, refreshToken, refreshTokenExpiredTime);
       }
       catch (Exception ex)
       {
@@ -111,60 +143,52 @@ namespace myproject.Repository
       }
     }
 
-    public ResponseData<AuthResponse> RefreshToken(string oldToken)
+    public ResponseData<AuthResponse> RefreshToken(TokenApiDto model)
     {
-      var tokenHandler = new JwtSecurityTokenHandler();
-
-      var secretKey = _config["AuthConfiguration:Key"];
-      if (string.IsNullOrEmpty(secretKey))
-      {
-        throw new InvalidOperationException("JWT secret key is missing in configuration.");
-      }
-      var key = Encoding.ASCII.GetBytes(secretKey);
+      if (model is null)
+        return ResponseData<AuthResponse>.Fail("Invalid request", 400);
 
       try
       {
-        // Validate token and ignore expiration
-        var principal = tokenHandler.ValidateToken(oldToken, new TokenValidationParameters
-        {
-          ValidateIssuer = false,
-          ValidateAudience = false,
-          ValidateIssuerSigningKey = true,
-          IssuerSigningKey = new SymmetricSecurityKey(key),
-          ValidateLifetime = false // Ignore expired tokens
-        }, out SecurityToken validatedToken);
+        string accessToken = model.AccessToken!;
+        string refreshToken = model.RefreshToken!;
 
-        var jwtToken = (JwtSecurityToken)validatedToken;
-        if (jwtToken == null)
-        {
-          return new ResponseData<AuthResponse>
-          {
-            StatusCode = 400,
-            Message = "Invalid token",
-            Data = null
-          };
-        }
+        // 1. Get refresh_token and its expire time from cookies
+        var context = _httpContextAccessor.HttpContext;
+        var cookieRefreshToken = context?.Request.Cookies["refresh_token"];
+        var cookieRefreshTokenExpireStr = context?.Request.Cookies["refresh_token_expire"];
 
-        // Extract claims from the old token
-        var claims = principal.Claims.ToList();
+        if (cookieRefreshToken == null || cookieRefreshTokenExpireStr == null)
+          return ResponseData<AuthResponse>.Fail("Refresh token not found", 401);
 
-        // Generate a new access token
-        var newAccessToken = GenerateAccessToken(claims);
-        var newExpireTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
+        if (cookieRefreshToken != refreshToken)
+          return ResponseData<AuthResponse>.Fail("Refresh token mismatch", 403);
 
-        // Set cookie or return token depending on your needs
-        SetJWTTokenCookie(newAccessToken, newExpireTime);
+        if (!DateTime.TryParse(cookieRefreshTokenExpireStr, out var refreshExpireTime))
+          return ResponseData<AuthResponse>.Fail("Invalid refresh token expiration", 400);
 
-        return ResponseData<AuthResponse>.Success(newAccessToken, newExpireTime);
+        if (refreshExpireTime < DateTime.UtcNow)
+          return ResponseData<AuthResponse>.Fail("Refresh token expired", 401);
+
+        // 2. Get user claims from expired access token
+        var principal = GetPrincipalFromExpiredToken(accessToken);
+        if (principal == null)
+          return ResponseData<AuthResponse>.Fail("Invalid access token", 401);
+
+        // 3. Generate new access token
+        var newAccessToken = GenerateAccessToken(principal.Claims);
+        var newAccessTokenExpire = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
+
+        // 4. Set new access token cookie
+        SetJWTTokenCookie("access_token", "access_token_expire", newAccessToken, newAccessTokenExpire);
+
+        // reuse the old refresh token (still valid)
+
+        return ResponseData<AuthResponse>.Success(newAccessToken, newAccessTokenExpire, refreshToken, refreshExpireTime);
       }
       catch (Exception ex)
       {
-        return new ResponseData<AuthResponse>
-        {
-          StatusCode = 401,
-          Message = "Token is invalid or tampered",
-          Data = null
-        };
+        return ResponseData<AuthResponse>.Fail("Server error: " + ex.Message, 500);
         throw new Exception(ex.Message);
       }
     }
@@ -199,7 +223,7 @@ namespace myproject.Repository
       return Task.FromResult(ResponseData<UserDto>.Success(200, "Logout successful"));
     }
 
-    private void SetJWTTokenCookie(string token, DateTime expireTime)
+    private void SetJWTTokenCookie(string cookieName, string cookieNameExpire, string token, DateTime expireTime)
     {
       var cookieOptions = new CookieOptions
       {
@@ -210,7 +234,7 @@ namespace myproject.Repository
       };
 
       // Set access_token
-      _httpContextAccessor.HttpContext?.Response.Cookies.Append("access_token", token, cookieOptions);
+      _httpContextAccessor.HttpContext?.Response.Cookies.Append(cookieName, token, cookieOptions);
 
       // Set custom expire_time cookie (readable on client if needed)
       var readableExpireOptions = new CookieOptions
@@ -221,8 +245,7 @@ namespace myproject.Repository
         SameSite = SameSiteMode.Strict
       };
 
-      _httpContextAccessor.HttpContext?.Response.Cookies.Append("access_token_expire", expireTime.ToString("o"), readableExpireOptions);
+      _httpContextAccessor.HttpContext?.Response.Cookies.Append(cookieNameExpire, expireTime.ToString("o"), readableExpireOptions);
     }
-
   }
 }

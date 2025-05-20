@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using myproject.DTOs;
@@ -11,44 +12,86 @@ namespace myproject.Controllers;
 public class ProductsController : ControllerBase
 {
   private readonly IProductService _productService;
+  private readonly ILogger<ProductsController> _logger;
 
-  public ProductsController(IProductService product)
+  public ProductsController(IProductService product, ILogger<ProductsController> logger)
   {
     this._productService = product;
+    this._logger = logger;
   }
 
   [HttpGet]
-  public async Task<IActionResult> GetAll()
+  public async Task<IActionResult> GetAll(QueryParameters parameters)
   {
-    var product = await _productService.GetProductsAsync();
+    var stopwatch = Stopwatch.StartNew();
+    _logger.LogInformation("GET /api/v1/products called with query: {@Parameters}", parameters);
+
+    var product = await _productService.GetProductsAsync(parameters);
+
+    stopwatch.Stop();
+    _logger.LogInformation("GET /api/v1/products completed in {ElapsedMilliseconds}ms", stopwatch.ElapsedMilliseconds);
+
     if (product.StatusCode != 200)
-      return StatusCode(
-        product.StatusCode,
-        new
-        {
-          status = product.StatusCode,
-          message = product.Message
-        });
+    {
+      _logger.LogWarning("GET /api/v1/products returned {StatusCode}: {Message}", product.StatusCode, product.Message);
+      return StatusCode(product.StatusCode, new
+      {
+        status = product.StatusCode,
+        message = product.Message
+      });
+    }
 
     return Ok(new
     {
+      status = product.StatusCode,
       message = product.Message,
-      data = product.ListData
+      data = new
+      {
+        products = product.Data?.Items,
+        pagination = new
+        {
+          totalItems = product.Data?.TotalItems,
+          pageNumber = product.Data?.PageNumber,
+          pageSize = product.Data?.PageSize,
+          totalPages = product.Data?.TotalPages
+        }
+      }
     });
   }
 
   [HttpGet("{id}")]
   public async Task<IActionResult> GetProduct(Guid id)
   {
+    var stopwatch = Stopwatch.StartNew();
+    _logger.LogInformation("GET /api/v1/products/{@Id} called with query: {@Id}", id);
+
+    // Validate input
+    if (id == Guid.Empty)
+    {
+      return BadRequest(new { status = 400, message = "Invalid product ID" });
+    }
+
     var product = await _productService.GetProductAsync(id);
+
+    stopwatch.Stop();
+    _logger.LogInformation("GET /api/v1/products/{@Id} completed in {ElapsedMilliseconds}ms", id, stopwatch.ElapsedMilliseconds);
+
     if (product.StatusCode != 200)
-      return NotFound(product);
+    {
+      _logger.LogWarning("GET /api/v1/products/{@Id} returned {StatusCode}: {Message}", id, product.StatusCode, product.Message);
+      return StatusCode(product.StatusCode, new
+      {
+        status = product.StatusCode,
+        message = product.Message
+      });
+    }
 
     return StatusCode(product.StatusCode,
       new
       {
+        status = product.StatusCode,
         message = product.Message,
-        data = product.Data
+        data = product.Data ?? new object()
       });
   }
 
@@ -92,4 +135,29 @@ public class ProductsController : ControllerBase
 
     return NoContent();
   }
+
+  [Authorize(Policy = "RequireOwnerAdminRole")]
+  [HttpPost("import")]
+  public async Task<IActionResult> ImportUsers(IFormFile file)
+  {
+
+    if (file == null || file.Length == 0)
+      return BadRequest("No file uploaded.");
+
+    var result = await _productService.ImportProductsAsync(file);
+
+    if (result.StatusCode == 200)
+      return Ok(new
+      {
+        status = result.StatusCode,
+        message = result.Message
+      });
+
+    return StatusCode(result.StatusCode, new
+    {
+      status = result.StatusCode,
+      message = result.Message
+    });
+  }
+
 }

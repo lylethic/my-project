@@ -18,7 +18,7 @@ namespace myproject
 
     public static ProductDto AsDto(this Product item)
     {
-      return new ProductDto(item.Id, item.Name, item.Price, item.Description, item.CreatedAt, item.UpdatedAt);
+      return new ProductDto(item.Id, item.ProductName, item.Price, item.Description, item.CreatedAt ?? DateTime.Now, item.UpdatedAt);
     }
   }
 }

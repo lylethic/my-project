@@ -159,6 +159,7 @@ namespace myproject.Repository
       {
         var user = await _context.Users
             .Where(u => u.Id == id)
+            .AsNoTracking()
             .Include(x => x.Role)
             .FirstOrDefaultAsync();
 
@@ -200,11 +201,21 @@ namespace myproject.Repository
           return ResponseData<User>.Fail("Invalid email format!", 400);
         }
 
-        var checkRole = await _context.Roles.Where(x => x.Id == entity.RoleId).FirstOrDefaultAsync();
-        if (checkRole is null) return ResponseData<User>.Fail("Role not found", 404);
+        // Single roundtrip query
+        var roleCheck = await _context.Roles
+            .Where(r => r.Id == entity.RoleId)
+            .Select(r => new
+            {
+              RoleExists = true,
+              EmailExists = _context.Users.Any(u => u.Email == entity.Email)
+            })
+            .FirstOrDefaultAsync();
 
-        var checkEmailExisting = await _context.Users.Where(x => x.Email == entity.Email).FirstOrDefaultAsync();
-        if (checkEmailExisting is not null) return ResponseData<User>.Fail("Email existed.", 400);
+        var roleExists = roleCheck?.RoleExists ?? false;
+        var emailExists = roleCheck?.EmailExists ?? false;
+
+        if (!roleExists) return ResponseData<User>.Fail("Role not found", 404);
+        if (emailExists) return ResponseData<User>.Fail("Email existed.", 400);
 
         var user = new User
         {
@@ -227,6 +238,101 @@ namespace myproject.Repository
       {
         return ResponseData<User>.Fail("Server error.", 500);
         throw new Exception(ex.Message);
+      }
+    }
+
+    public async Task<ResponseData<List<User>>> AddUsersAsync(IEnumerable<CreateUserDto> entities)
+    {
+      try
+      {
+        // Validate all emails first
+        var invalidEmails = entities
+            .Where(e => !Utils.IsValidEmail(e.Email))
+            .Select(e => e.Email)
+            .ToList();
+
+        if (invalidEmails.Any())
+        {
+          return ResponseData<List<User>>.Fail(
+              $"Invalid email format for: {string.Join(", ", invalidEmails)}",
+              400);
+        }
+
+        // Check for duplicate emails in the batch
+        var duplicateEmails = entities
+            .GroupBy(e => e.Email)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+
+        if (duplicateEmails.Any())
+        {
+          return ResponseData<List<User>>.Fail(
+              $"Duplicate emails in batch: {string.Join(", ", duplicateEmails)}",
+              400);
+        }
+
+        // Get all emails from the batch and existing emails in single query
+        var batchEmails = entities.Select(e => e.Email).ToList();
+        var existingEmails = await _context.Users
+            .Where(u => batchEmails.Contains(u.Email))
+            .Select(u => u.Email)
+            .ToListAsync();
+
+        // Check for existing emails
+        var conflictingEmails = batchEmails.Intersect(existingEmails).ToList();
+        if (conflictingEmails.Any())
+        {
+          return ResponseData<List<User>>.Fail(
+              $"Emails already exist: {string.Join(", ", conflictingEmails)}",
+              400);
+        }
+
+        // Verify all roles exist in single query
+        var roleIds = entities.Select(e => e.RoleId).Distinct().ToList();
+        var existingRoleIds = await _context.Roles
+            .Where(r => roleIds.Contains(r.Id))
+            .Select(r => r.Id)
+            .ToListAsync();
+
+        var missingRoleIds = roleIds.Except(existingRoleIds).ToList();
+        if (missingRoleIds.Any())
+        {
+          return ResponseData<List<User>>.Fail(
+              $"Roles not found: {string.Join(", ", missingRoleIds)}",
+              404);
+        }
+
+        // Create users
+        var users = new List<User>();
+        foreach (var entity in entities)
+        {
+          var user = new User
+          {
+            Id = Guid.NewGuid(),
+            RoleId = entity.RoleId,
+            Name = entity.Name,
+            Email = entity.Email,
+            Password = "temp",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = null,
+            DeletedAt = null
+          };
+          user.Password = HashPassword(user, entity.Password);
+          users.Add(user);
+        }
+
+        // Bulk insert (more efficient than individual inserts)
+        await _context.Users.AddRangeAsync(users);
+        await _context.SaveChangesAsync();
+
+        return ResponseData<List<User>>.Success(201, "Successfully added users.");
+      }
+      catch (Exception ex)
+      {
+        // Log the actual error but return generic message
+        _logger.LogError(ex, "Error adding multiple users");
+        return ResponseData<List<User>>.Fail("Server error while processing batch", 500);
       }
     }
 
@@ -386,7 +492,7 @@ namespace myproject.Repository
       {
         await transaction.RollbackAsync();
         _logger.LogError(ex, "Error exporting users to Excel.");
-        throw;
+        throw new AppException($"Error exporting users to Excel: {ex.Message}");
       }
     }
 
