@@ -5,7 +5,7 @@ networks:
     driver: bridge
 
 services:
-  myproject: 
+  api_service: 
     image: myproject:latest
     depends_on:
       app_db:
@@ -16,6 +16,8 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
+      args:
+        PROJECT_PATH: "Play.APIs/Play.APIs.csproj" 
     environment:
       - ConnectionStrings__DefaultConnection=Host=app_db;Port=5432;Database=SampleDbDriver;Username=postgres;Password=postgres;Pooling=true;
       - ASPNETCORE_URLS=http://+:80
