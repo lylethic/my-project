@@ -60,7 +60,7 @@ public class UsersController : ControllerBase
   public async Task<IActionResult> GetUser(Guid id)
   {
     var stopwatch = Stopwatch.StartNew();
-    _logger.LogInformation("GET /api/v1/user/@{Id} called with query: {@Id}", id);
+    _logger.LogInformation("GET /api/v1/user/{Id} called with query: {QueryId}", id, id);
     // Validate input
     if (id == Guid.Empty)
     {

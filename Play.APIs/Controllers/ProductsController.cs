@@ -21,7 +21,7 @@ public class ProductsController : ControllerBase
   }
 
   [HttpGet]
-  public async Task<IActionResult> GetAll(QueryParameters parameters)
+  public async Task<IActionResult> GetAll([FromQuery] QueryParameters parameters)
   {
     var stopwatch = Stopwatch.StartNew();
     _logger.LogInformation("GET /api/v1/products called with query: {@Parameters}", parameters);
@@ -63,7 +63,8 @@ public class ProductsController : ControllerBase
   public async Task<IActionResult> GetProduct(Guid id)
   {
     var stopwatch = Stopwatch.StartNew();
-    _logger.LogInformation("GET /api/v1/products/{@Id} called with query: {@Id}", id);
+    _logger.LogInformation("GET /api/v1/products/{Id} called with query: {QueryId}", id, id);
+
 
     // Validate input
     if (id == Guid.Empty)
@@ -91,7 +92,7 @@ public class ProductsController : ControllerBase
       {
         status = product.StatusCode,
         message = product.Message,
-        data = product.Data ?? new object()
+        data = product.Data
       });
   }
 
@@ -136,6 +137,20 @@ public class ProductsController : ControllerBase
     return NoContent();
   }
 
+  [HttpPatch("status/{id}")]
+  [Authorize(Policy = "RequireOwnerAdminRole")]
+  public async Task<IActionResult> ChangeStatusProduct(Guid id)
+  {
+    var product = await _productService.ChangeStatusProductAsync(id);
+    if (product.StatusCode != 200) return StatusCode(product.StatusCode, new
+    {
+      status = product.StatusCode,
+      message = product.Message
+    });
+
+    return NoContent();
+  }
+
   [Authorize(Policy = "RequireOwnerAdminRole")]
   [HttpPost("import")]
   public async Task<IActionResult> ImportUsers(IFormFile file)
@@ -159,5 +174,4 @@ public class ProductsController : ControllerBase
       message = result.Message
     });
   }
-
 }

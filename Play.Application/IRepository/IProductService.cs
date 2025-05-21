@@ -12,5 +12,6 @@ namespace Play.Application.IRepository
     Task<ResponseData<Product>> UpdateProductAsync(Guid id, UpdateProductDto entity);
     Task<ResponseData<Product>> DeleteProductAsync(Guid id);
     Task<ResponseData<string>> ImportProductsAsync(IFormFile file);
+    Task<ResponseData<Product>> ChangeStatusProductAsync(Guid id);
   }
 }

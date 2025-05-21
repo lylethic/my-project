@@ -39,7 +39,8 @@ namespace Play.Infrastructure.Repository
           Price = entity.Price,
           Description = entity.Description,
           CreatedAt = DateTime.UtcNow,
-          UpdatedAt = null
+          UpdatedAt = null,
+          IsActive = true
         };
 
         await _context.Products.AddAsync(product);
@@ -82,6 +83,11 @@ namespace Play.Infrastructure.Repository
       try
       {
         var query = _context.Products.AsQueryable();
+
+        // Apply filtering
+        if (parameters.IsActive.HasValue)
+          query = query.Where(u => u.IsActive == parameters.IsActive.Value);
+
         // Apply search if SearchTerm is provided
         if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
         {
@@ -122,7 +128,7 @@ namespace Play.Infrastructure.Repository
         // Apply pagination
         var products = await query
         .AsNoTracking()
-        .Skip(parameters.Page - 1 * parameters.PageSize)
+        .Skip((parameters.Page - 1) * parameters.PageSize)
         .Take(parameters.PageSize)
         .Select(p => new Product
         {
@@ -130,7 +136,9 @@ namespace Play.Infrastructure.Repository
           ProductName = p.ProductName,
           Price = p.Price,
           Description = p.Description,
-          CreatedAt = p.CreatedAt
+          CreatedAt = p.CreatedAt,
+          UpdatedAt = p.UpdatedAt,
+          IsActive = p.IsActive
         })
         .ToListAsync();
 
@@ -167,12 +175,13 @@ namespace Play.Infrastructure.Repository
       var product = await _context.Products.FirstOrDefaultAsync(x => x.Id == id);
       if (product is null) return ResponseData<Product>.Fail("Product not found", 404);
 
-      product.ProductName = entity.Name ?? product.ProductName;
-      product.Price = entity.Price ?? 0;
+      product.ProductName = entity.ProductName ?? product.ProductName;
+      product.Price = entity.Price ?? 1;
       product.Description = entity.Description ?? product.Description;
       product.UpdatedAt = DateTime.UtcNow;
+      product.IsActive = entity.IsActive ?? product.IsActive;
 
-      _context.Products.UpdateRange(product);
+      _context.Products.Update(product);
       await _context.SaveChangesAsync();
 
       return ResponseData<Product>.Success(product);
@@ -187,6 +196,20 @@ namespace Play.Infrastructure.Repository
       }
 
       _context.Products.Remove(productExisting);
+      await _context.SaveChangesAsync();
+      return ResponseData<Product>.Success(productExisting);
+    }
+
+    public async Task<ResponseData<Product>> ChangeStatusProductAsync(Guid id)
+    {
+      var productExisting = await _context.Products.Where(x => x.Id == id).FirstOrDefaultAsync();
+      if (productExisting is null)
+      {
+        return ResponseData<Product>.Fail("Product Not found", 404);
+      }
+
+      productExisting.IsActive = !productExisting.IsActive;
+      productExisting.UpdatedAt = DateTime.UtcNow;
       await _context.SaveChangesAsync();
       return ResponseData<Product>.Success(productExisting);
     }

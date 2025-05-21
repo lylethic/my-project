@@ -1,3 +1,13 @@
+# Run API in here:
+
+- cd `myproject\Play.APIs`
+- run: `dotnet run`
+
+## Account (owner)
+
+- email: ly@gmail.com
+- password: Aa@123123
+
 # Project Structure
 
 myproject/
