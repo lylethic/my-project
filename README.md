@@ -83,6 +83,8 @@ Manages data access and related components:
 - **Data/**: Data access layer implementations.
 - **Helpers/**: Utility classes and methods.
 - **Migrations/**: Database migration files.
+- **Common/**: Contractsm Helpers, Repositories(SimpleCrudRepositories), Databases(SqlCommandHelper).
+- **Service/**: eg: RoleService,...
 - **Repository/**: Implementation of repository patterns.
 - **Play.Infrastructure.csproj**: The project file for the infrastructure layer.
 

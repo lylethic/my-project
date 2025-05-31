@@ -4,6 +4,13 @@ namespace Play.Application.DTOs;
 
 /// <summary> "record" keyword: compare based on values of their properties, not object references.
 /// </summary>
-public record RoleDto(Guid Id, string Name, string Description);
-public record CreateRoleDto([Required] string Name, string Description);
-public record UpdateRoleDto(string Name, string Description);
+public class RoleDto
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+public record CreateRoleDto(string Name, bool IsActive);
+public record CreateRoleRequest(string Id, string Name, bool IsActive);
+public record UpdateRoleRequest(string Id, string Name, bool IsActive, DateTime? DeletedAt = null);

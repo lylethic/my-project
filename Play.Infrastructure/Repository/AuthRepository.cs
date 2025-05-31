@@ -94,7 +94,6 @@ namespace Play.Infrastructure.Repository
       try
       {
         var user = await _context.Users
-         .Include(u => u.Role)
          .FirstOrDefaultAsync(u => u.Email == model.Email && u.IsActive && u.DeletedAt == null);
 
         if (user == null)
@@ -121,9 +120,8 @@ namespace Play.Infrastructure.Repository
         var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Name),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role.Name ?? user.RoleId.ToString())
+            new Claim(ClaimTypes.Name, user.FirstName),
+            new Claim(ClaimTypes.Email, user.Email)
         };
 
         // Generate access token

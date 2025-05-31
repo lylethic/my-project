@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 namespace Play.APIs.Controllers;
 
-[Route("api/v1/products")]
+[Route("api/products")]
 [ApiController]
 [Authorize]
 public class ProductsController : ControllerBase
@@ -47,13 +47,10 @@ public class ProductsController : ControllerBase
       message = product.Message,
       data = new
       {
-        products = product.Data?.Items,
+        products = product.Data?.Data,
         pagination = new
         {
-          totalItems = product.Data?.TotalItems,
-          pageNumber = product.Data?.PageNumber,
           pageSize = product.Data?.PageSize,
-          totalPages = product.Data?.TotalPages
         }
       }
     });

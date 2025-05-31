@@ -1,13 +1,15 @@
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+using Dapper.Contrib.Extensions;
 
 namespace Play.Domain.Entities;
 
-[Table("role")]
+[Table("roles")]
 public class Role
 {
   [Key]
-  public Guid Id { get; set; }
-  public required string Name { get; set; }
-  public required string Description { get; set; }
+  public string Id { get; set; } = Guid.NewGuid().ToString();
+  public string Name { get; set; } = string.Empty;
+  public DateTime CreatedAt { get; set; }
+  public DateTime? UpdatedAt { get; set; }
+  public DateTime? DeletedAt { get; set; }
+  public bool IsActive { get; set; } = true;
 }

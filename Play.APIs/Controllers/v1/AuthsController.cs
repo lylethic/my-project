@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 namespace Play.APIs.Controllers
 {
-  [Route("api/v1/auth")]
+  [Route("api/auth")]
   [ApiController]
   public class AuthsController : ControllerBase
   {

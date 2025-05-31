@@ -7,10 +7,12 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Play.API.IRepository;
 using Play.Application.DTOs;
+using Play.Application.Model.User;
 using Play.Domain.Entities;
 using Play.Infrastructure.Data;
 using Play.Infrastructure.Helpers;
 using System.Diagnostics;
+using Dapper;
 
 namespace Play.Infrastructure.Repository
 {
@@ -21,13 +23,15 @@ namespace Play.Infrastructure.Repository
     private readonly IConfiguration _config;
     private readonly ILogger<UserRepository> _logger;
     private readonly MemoryCacheEntryOptions _cacheOptions;
+    private DataContext _dataContext;
 
-    public UserRepository(ApiDbContext context, IMemoryCache cache, IConfiguration configuration, ILogger<UserRepository> logger)
+    public UserRepository(ApiDbContext context, DataContext dataContext, IMemoryCache cache, IConfiguration configuration, ILogger<UserRepository> logger)
     {
       _context = context;
       _cache = cache;
       _config = configuration;
       _logger = logger;
+      _dataContext = dataContext;
 
       _cacheOptions = new MemoryCacheEntryOptions()
                .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
@@ -41,6 +45,16 @@ namespace Play.Infrastructure.Repository
     private string HashPassword(User user, string plainPassword)
     {
       return _passwordHasher.HashPassword(user, plainPassword);
+    }
+
+    public async Task AddUserAsync(UserDto user)
+    {
+      using var connection = _dataContext.CreateConnection();
+      var sql = """
+            INSERT INTO Users ()
+            VALUES ()
+        """;
+      await connection.ExecuteAsync(sql, user);
     }
 
     public async Task<ResponseData<PaginatedResponse<UserDto>>> GetUsersAsync(QueryParameters parameters)
@@ -59,7 +73,7 @@ namespace Play.Infrastructure.Repository
         {
           var searchTerm = parameters.SearchTerm.ToLower();
           query = query.Where(u =>
-              u.Name.ToLower().Contains(searchTerm) ||
+              u.FirstName.ToLower().Contains(searchTerm) ||
               u.Email.ToLower().Contains(searchTerm)
           );
         }
@@ -72,9 +86,9 @@ namespace Play.Infrastructure.Repository
         {
           query = parameters.SortBy.ToLower() switch
           {
-            "name" => parameters.SortDescending
-                     ? query.OrderByDescending(u => u.Name)
-                     : query.OrderBy(u => u.Name),
+            "first_name" => parameters.SortDescending
+                     ? query.OrderByDescending(u => u.FirstName)
+                     : query.OrderBy(u => u.FirstName),
             "email" => parameters.SortDescending
                       ? query.OrderByDescending(u => u.Email)
                       : query.OrderBy(u => u.Email),
@@ -97,20 +111,11 @@ namespace Play.Infrastructure.Repository
             .AsNoTracking()
             .Skip((parameters.Page - 1) * parameters.PageSize)
             .Take(parameters.PageSize)
-            .Select(u => new UserDto(
-                u.Id,
-                u.RoleId,
-                u.Name,
-                u.Email
-            ))
             .ToListAsync();
 
         // Create paginated response
         var paginatedResponse = new PaginatedResponse<UserDto>
         {
-          Items = users,
-          TotalItems = totalRecords,
-          PageNumber = parameters.Page,
           PageSize = parameters.PageSize
         };
 
@@ -136,7 +141,7 @@ namespace Play.Infrastructure.Repository
       }
     }
 
-    public async Task<ResponseData<User>> GetUserAsync(Guid id)
+    public async Task<ResponseData<User>> GetUserAsync(string id)
     {
       var stopwatch = new Stopwatch();
       stopwatch.Start();
@@ -161,7 +166,6 @@ namespace Play.Infrastructure.Repository
         var user = await _context.Users
             .Where(u => u.Id == id)
             .AsNoTracking()
-            .Include(x => x.Role)
             .FirstOrDefaultAsync();
 
         stopwatch.Stop();
@@ -192,7 +196,7 @@ namespace Play.Infrastructure.Repository
       }
     }
 
-    public async Task<ResponseData<User>> AddUserAsync(CreateUserDto entity)
+    public async Task<ResponseData<User>> AddUserAsync(CreateUserRequest entity)
     {
       try
       {
@@ -220,9 +224,9 @@ namespace Play.Infrastructure.Repository
 
         var user = new User
         {
-          Id = Guid.NewGuid(),
+          Id = Guid.NewGuid().ToString(),
           RoleId = entity.RoleId,
-          Name = entity.Name,
+          FirstName = entity.FirstName,
           Email = entity.Email,
           Password = "temp",
           CreatedAt = DateTime.UtcNow,
@@ -242,7 +246,7 @@ namespace Play.Infrastructure.Repository
       }
     }
 
-    public async Task<ResponseData<List<User>>> AddUsersAsync(IEnumerable<CreateUserDto> entities)
+    public async Task<ResponseData<List<User>>> AddUsersAsync(IEnumerable<CreateUserRequest> entities)
     {
       try
       {
@@ -310,9 +314,9 @@ namespace Play.Infrastructure.Repository
         {
           var user = new User
           {
-            Id = Guid.NewGuid(),
+            Id = Guid.NewGuid().ToString(),
             RoleId = entity.RoleId,
-            Name = entity.Name,
+            FirstName = entity.FirstName,
             Email = entity.Email,
             Password = "temp",
             CreatedAt = DateTime.UtcNow,
@@ -337,7 +341,7 @@ namespace Play.Infrastructure.Repository
       }
     }
 
-    public async Task<ResponseData<User>> UpdateUserAsync(Guid id, UpdateUserDto entity)
+    public async Task<ResponseData<User>> UpdateUserAsync(string id, UpdateUserRequest entity)
     {
       try
       {
@@ -348,7 +352,7 @@ namespace Play.Infrastructure.Repository
         if (user is null) return ResponseData<User>.Fail("User not found!", 404);
 
         user.RoleId = entity.RoleId;
-        user.Name = entity.Name ?? user.Name;
+        user.FirstName = entity.FirstName ?? user.FirstName;
         user.Email = entity.Email ?? user.Email;
         user.IsActive = entity.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
@@ -365,23 +369,19 @@ namespace Play.Infrastructure.Repository
       }
     }
 
-    public async Task<ResponseData<User>> DeleteUserAsync(Guid id)
+    public async Task<ResponseData<User>> DeleteUserAsync(string id)
     {
       try
       {
         var userExisting = await _context.Users
-            .Include(u => u.Role) // Make sure to include the Role navigation property
+            .Include(u => u.Id) // Make sure to include the Role navigation property
             .FirstOrDefaultAsync(x => x.Id == id);
 
         if (userExisting is null)
           return ResponseData<User>.Fail("User does not exist.", 404);
 
         // Check if the user has the Owner role (case-insensitive comparison)
-        if (userExisting.Role != null &&
-            userExisting.Role.Name.Equals("Owner", StringComparison.OrdinalIgnoreCase))
-        {
-          return ResponseData<User>.Fail("Cannot delete Owner accounts.", 403);
-        }
+
 
         // Proceed with soft delete
         userExisting.DeletedAt = DateTime.UtcNow;
@@ -400,50 +400,51 @@ namespace Play.Infrastructure.Repository
 
     public async Task<ResponseData<int>> AddUsersFromExcelAsync(Stream excelStream)
     {
-      try
-      {
-        var workbook = new XLWorkbook(excelStream);
-        var worksheet = workbook.Worksheets.First();
+      // try
+      // {
+      //   var workbook = new XLWorkbook(excelStream);
+      //   var worksheet = workbook.Worksheets.First();
 
-        int addedCount = 0;
-        var rows = worksheet.RowsUsed().Skip(1); // Skip header row
+      //   int addedCount = 0;
+      //   var rows = worksheet.RowsUsed().Skip(1); // Skip header row
 
-        foreach (var row in rows)
-        {
-          var roleIdCell = row.Cell(1).GetString();
-          var name = row.Cell(2).GetString();
-          var email = row.Cell(3).GetString();
-          var password = row.Cell(4).GetString();
+      //   foreach (var row in rows)
+      //   {
+      //     var roleIdCell = row.Cell(1).GetString();
+      //     var name = row.Cell(2).GetString();
+      //     var email = row.Cell(3).GetString();
+      //     var password = row.Cell(4).GetString();
 
-          if (!Guid.TryParse(roleIdCell, out Guid roleId))
-          {
-            _logger.LogWarning($"Invalid RoleId '{roleIdCell}' at row {row.RowNumber()}");
-            continue;
-          }
+      //     // if (!roleIdCell, out string roleId)
+      //     // {
+      //     //   _logger.LogWarning($"Invalid RoleId '{roleIdCell}' at row {row.RowNumber()}");
+      //     //   continue;
+      //     // }
 
-          var userDto = new CreateUserDto(roleId, name, email, password);
+      //     var userDto = new CreateUserDto(roleId, name, email, password);
 
-          var result = await AddUserAsync(userDto);
-          if (result.StatusCode == 200)
-          {
-            addedCount++;
-          }
-          else
-          {
-            _logger.LogWarning($"Failed to add user at row {row.RowNumber()}: {result.Message}");
-          }
-        }
+      //     var result = await AddUserAsync(userDto);
+      //     if (result.StatusCode == 200)
+      //     {
+      //       addedCount++;
+      //     }
+      //     else
+      //     {
+      //       _logger.LogWarning($"Failed to add user at row {row.RowNumber()}: {result.Message}");
+      //     }
+      //   }
 
-        return ResponseData<int>.Success(200, $"{addedCount} users added successfully.");
-      }
-      catch (Exception ex)
-      {
-        _logger.LogError(ex, "Error importing users from Excel.");
-        return ResponseData<int>.Fail("Error importing users.", 500);
-      }
+      //   return ResponseData<int>.Success(200, $"{addedCount} users added successfully.");
+      // }
+      // catch (Exception ex)
+      // {
+      //   _logger.LogError(ex, "Error importing users from Excel.");
+      //   return ResponseData<int>.Fail("Error importing users.", 500);
+      // }
+      throw new NotImplementedException();
     }
 
-    public async Task<byte[]> ExportUsersToExcelAsync(int take = 20, Guid? roleId = null)
+    public async Task<byte[]> ExportUsersToExcelAsync(int take = 20, string? roleId = null)
     {
       await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted);
 
@@ -451,13 +452,12 @@ namespace Play.Infrastructure.Repository
       {
         var query = _context.Users.AsQueryable();
 
-        if (roleId.HasValue)
+        if (roleId is not null)
         {
-          query = query.Where(u => u.RoleId == roleId.Value);
+          query = query.Where(u => u.RoleId == roleId);
         }
 
         var users = await query
-            .Include(u => u.Role)
             .OrderByDescending(u => u.CreatedAt)
             .Take(take)
             .ToListAsync();
@@ -475,9 +475,9 @@ namespace Play.Infrastructure.Repository
         foreach (var user in users)
         {
           worksheet.Cell(row, 1).Value = user.Id.ToString();
-          worksheet.Cell(row, 2).Value = user.Name;
+          worksheet.Cell(row, 2).Value = user.FirstName;
           worksheet.Cell(row, 3).Value = user.Email;
-          worksheet.Cell(row, 4).Value = user.Role?.Name ?? user.RoleId.ToString();
+          worksheet.Cell(row, 4).Value = user.RoleId ?? user.RoleId.ToString();
           row++;
         }
 

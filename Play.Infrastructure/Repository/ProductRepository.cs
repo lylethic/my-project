@@ -144,9 +144,7 @@ namespace Play.Infrastructure.Repository
 
         var paginatedResponse = new PaginatedResponse<Product>
         {
-          Items = products,
-          TotalItems = totalRecords,
-          PageNumber = parameters.Page,
+          Data = products,
           PageSize = parameters.PageSize
         };
 
