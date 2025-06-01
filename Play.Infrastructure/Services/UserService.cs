@@ -1,5 +1,7 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 using System.Data;
+using Microsoft.AspNetCore.Http;
 using Play.Application.DTOs;
 using Play.Domain.Entities;
 using Play.Infrastructure.Common.Contracts;
@@ -27,8 +29,16 @@ public class UserService(IServiceProvider services, IDbConnection connection) : 
             throw new ArgumentException("Password is required.");
 
         var role = await _roleRepo.GetById(request.RoleId);
-        if (role == null)
+        if (role is null)
             throw new ArgumentException("Invalid Role ID: Role does not exist.");
+
+        // Validate Email uniqueness if provided
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            bool isEmailUnique = await _repo.IsEmailUnique(request.Email.Trim());
+            if (!isEmailUnique)
+                throw new ArgumentException("Email is already in use by another user.");
+        }
 
         var user = new User
         {
@@ -46,11 +56,125 @@ public class UserService(IServiceProvider services, IDbConnection connection) : 
 
         await _repo.Create(user);
     }
+    public async Task UpdateUserAsync(string id, UpdateUserRequest request)
+    {
+        // Check if user exists
+        var userExisting = await _repo.GetById(id);
+        if (userExisting is null)
+            throw new ArgumentException("User not found.");
 
-    public async Task<UserDto> GetById(string id)
+        // Validate using DataAnnotations
+        var context = new ValidationContext(request);
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(request, context, results, true))
+        {
+            var errors = string.Join("; ", results.Select(r => r.ErrorMessage));
+            throw new ArgumentException($"Validation failed: {errors}");
+        }
+
+        // Check if any fields are provided for update FIRST
+        bool hasUpdates = !string.IsNullOrWhiteSpace(request.FirstName) ||
+                         !string.IsNullOrWhiteSpace(request.LastName) ||
+                         !string.IsNullOrWhiteSpace(request.Email) ||
+                         !string.IsNullOrWhiteSpace(request.RoleId) ||
+                         (request.IsActive.HasValue && request.IsActive != userExisting.IsActive);
+
+        if (!hasUpdates)
+        {
+            throw new ArgumentException("No fields provided for update.");
+        }
+
+        // Validate RoleId existence if provided
+        if (!string.IsNullOrWhiteSpace(request.RoleId))
+        {
+            var roleExisting = await _roleRepo.GetById(request.RoleId);
+            if (roleExisting is null)
+                throw new ArgumentException("Invalid Role ID: Role does not exist.");
+        }
+
+        // Validate Email uniqueness if provided
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            bool isEmailUnique = await _repo.CheckEmailUnique(request.Email.Trim(), id);
+            if (!isEmailUnique)
+                throw new ArgumentException("Email is already in use by another user.");
+        }
+
+        // Update only provided fields
+        if (!string.IsNullOrWhiteSpace(request.FirstName))
+            userExisting.FirstName = request.FirstName;
+
+        if (!string.IsNullOrWhiteSpace(request.LastName))
+            userExisting.LastName = request.LastName;
+
+        if (!string.IsNullOrWhiteSpace(request.Email))
+            userExisting.Email = request.Email.Trim();
+
+        if (!string.IsNullOrWhiteSpace(request.RoleId))
+            userExisting.RoleId = request.RoleId;
+
+        if (request.IsActive.HasValue)
+            userExisting.IsActive = request.IsActive.Value;
+
+        userExisting.UpdatedAt = DateTime.Now;
+
+        try
+        {
+            await _repo.Update(userExisting);
+        }
+        catch (ArgumentException)
+        {
+            // Re-throw ArgumentExceptions (including our email uniqueness check)
+            throw;
+        }
+        catch (System.Exception ex)
+        {
+            throw new InvalidOperationException("Failed to update user.", ex);
+        }
+    }
+    public async Task<User> DeleteUserAsync(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException("User ID is required.");
+
+        var userExisting = await _repo.GetById(id)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        userExisting.DeletedAt = DateTime.Now;
+        userExisting.IsActive = false;
+        userExisting.UpdatedAt = DateTime.Now;
+
+        var updatedUser = await _repo.Update(userExisting)
+            ?? throw new InvalidOperationException("Failed to delete user.");
+        return updatedUser;
+    }
+    public async Task<User> GetById(string id)
     {
         var user = await _repo.GetById(id)
-            ?? throw new Exception("Not found.");
+            ?? throw new ArgumentException("Not found.");
         return user;
+    }
+    public async Task ImportUsersAsync(IFormFile file)
+    {
+        try
+        {
+            await _repo.ImportUsersFromExcel(file);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ArgumentException($"Error importing user.");
+        }
+    }
+    public async Task<PaginatedResponse<UserDto>> GetUsersAsync(PaginationRequest request)
+    {
+        var data = await _repo.GetUsers(request);
+        var result = _mapper.Map<List<UserDto>>(data);
+        var nextCursor = result.LastOrDefault()?.CreatedAt;
+        return new PaginatedResponse<UserDto>
+        {
+            Data = result,
+            PageSize = request.PageSize,
+            NextCursor = nextCursor
+        };
     }
 }

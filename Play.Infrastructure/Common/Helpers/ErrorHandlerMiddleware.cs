@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Text.Json;
 
-namespace Play.Infrastructure.Helpers;
+namespace Play.Infrastructure.Common.Helpers;
 
 public class ErrorHandlerMiddleware
 {

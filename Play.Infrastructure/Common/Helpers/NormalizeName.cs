@@ -2,14 +2,13 @@ using System;
 using System.Globalization;
 using System.Text;
 
-namespace Play.Infrastructure.Helpers;
+namespace Play.Infrastructure.Common.Helpers;
 
 public static class NormalizeName
 {
   public static string ImplNormalizeName(string name)
   {
     string normalizedName = NormalizeVietnameseName(name);
-    Console.WriteLine("Normalized Name: " + normalizedName);
     return normalizedName;
   }
 

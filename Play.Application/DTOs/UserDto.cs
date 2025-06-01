@@ -13,8 +13,6 @@ public class UserDto
   public bool IsActive { get; set; } = true;
 }
 
-public record UpdateUserRequest(string RoleId, string FirstName, string LastName, string Email, bool IsActive = true);
-
 public record CreateUserRequest(
     [Required(ErrorMessage = "RoleId is required")]
     string RoleId,
@@ -37,4 +35,25 @@ public record CreateUserRequest(
         ErrorMessage = "Password must contain uppercase, lowercase, digit, special character and be 8+ characters long")]
     string Password
 );
+
+public record UpdateUserRequest
+{
+  public string Id { get; init; } = string.Empty;
+  public string? RoleId { get; init; }
+
+  [RegularExpression(@"^[a-zA-Z\s'-]+$", ErrorMessage = "FirstName must contain only letters, spaces, hyphens, or apostrophes.")]
+  [StringLength(100, ErrorMessage = "FirstName cannot exceed 100 characters.")]
+  public string? FirstName { get; init; }
+
+  [RegularExpression(@"^[a-zA-Z\s'-]+$", ErrorMessage = "LastName must contain only letters, spaces, hyphens, or apostrophes.")]
+  [StringLength(100, ErrorMessage = "LastName cannot exceed 100 characters.")]
+  public string? LastName { get; init; }
+
+  [EmailAddress(ErrorMessage = "Email must be a valid email address.")]
+  [StringLength(100, ErrorMessage = "Email cannot exceed 100 characters.")]
+  public string? Email { get; init; }
+
+  public bool? IsActive { get; init; }
+}
+
 

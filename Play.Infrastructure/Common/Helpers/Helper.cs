@@ -2,7 +2,7 @@
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 
-namespace Play.Infrastructure.Helpers
+namespace Play.Infrastructure.Common.Helpers
 {
   public static class Utils
   {

@@ -4,7 +4,7 @@ using System.Data;
 using Dapper;
 using Microsoft.Extensions.Options;
 
-namespace Play.Infrastructure.Helpers;
+namespace Play.Infrastructure.Common.Helpers;
 
 public class DataContext
 {

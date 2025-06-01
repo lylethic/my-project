@@ -1,6 +1,6 @@
 using System;
 
-namespace Play.Infrastructure.Helpers;
+namespace Play.Infrastructure.Common.Helpers;
 
 public class DbSettings
 {

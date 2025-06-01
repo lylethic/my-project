@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using Play.Application.DTOs;
 using Play.Application.IRepository;
 using Play.Domain.Entities;
+using Play.Infrastructure.Common.Helpers;
 using Play.Infrastructure.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -106,7 +107,7 @@ namespace Play.Infrastructure.Repository
         }
 
         // Verify the password using your existing method
-        if (!VerifyPassword(user, model.Password) || !Helpers.Utils.IsValidEmail(model.Email))
+        if (!VerifyPassword(user, model.Password) || !Utils.IsValidEmail(model.Email))
         {
           return new ResponseData<AuthResponse>
           {

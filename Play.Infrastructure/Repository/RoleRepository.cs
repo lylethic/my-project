@@ -3,8 +3,8 @@ using Play.API.IRepository;
 using Play.Application.DTOs;
 using Play.Domain.Entities;
 using Play.Infrastructure.Data;
-using Play.Infrastructure.Helpers;
 using Dapper;
+using Play.Infrastructure.Common.Helpers;
 
 namespace Play.Infrastructure.Repository
 {

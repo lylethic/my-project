@@ -7,6 +7,7 @@ using Play.Infrastructure.Common.Services;
 using Play.Infrastructure.Repository;
 
 namespace Play.Infrastructure.Services;
+
 public class RoleService(IServiceProvider services, IDbConnection connection) : BaseService(services), IScoped
 {
     private readonly RoleRepo _repo = new RoleRepo(connection);
@@ -55,7 +56,8 @@ public class RoleService(IServiceProvider services, IDbConnection connection) : 
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Role ID is required.");
 
-        var roleExisting = await _repo.GetById(id) ?? throw new KeyNotFoundException("Role not found.");
+        var roleExisting = await _repo.GetById(id)
+            ?? throw new KeyNotFoundException("Role not found.");
 
         roleExisting.DeletedAt = DateTime.Now;
         roleExisting.IsActive = false;
@@ -63,7 +65,6 @@ public class RoleService(IServiceProvider services, IDbConnection connection) : 
 
         var updatedRole = await _repo.Update(roleExisting)
             ?? throw new InvalidOperationException("Failed to delete the role.");
-
         return updatedRole;
     }
 

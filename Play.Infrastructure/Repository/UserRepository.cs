@@ -10,7 +10,7 @@ using Play.Application.DTOs;
 using Play.Application.Model.User;
 using Play.Domain.Entities;
 using Play.Infrastructure.Data;
-using Play.Infrastructure.Helpers;
+using Play.Infrastructure.Common.Helpers;
 using System.Diagnostics;
 using Dapper;
 
@@ -354,7 +354,7 @@ namespace Play.Infrastructure.Repository
         user.RoleId = entity.RoleId;
         user.FirstName = entity.FirstName ?? user.FirstName;
         user.Email = entity.Email ?? user.Email;
-        user.IsActive = entity.IsActive;
+        // user.IsActive = entity.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
         // Update database
