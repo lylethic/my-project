@@ -1,6 +1,8 @@
 ﻿using System.Globalization;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using DocumentFormat.OpenXml.Math;
+using Microsoft.Extensions.Logging;
 
 namespace Play.Infrastructure.Common.Helpers
 {
@@ -39,7 +41,7 @@ namespace Play.Infrastructure.Common.Helpers
                               RegexOptions.None, TimeSpan.FromMilliseconds(200));
 
         // Examines the domain part of the email and normalizes it.
-        string DomainMapper(Match match)
+        static string DomainMapper(Match match)
         {
           // Use IdnMapping class to convert Unicode domain names.
           var idn = new IdnMapping();
@@ -50,13 +52,15 @@ namespace Play.Infrastructure.Common.Helpers
           return match.Groups[1].Value + domainName;
         }
       }
-      catch (RegexMatchTimeoutException e)
+      catch (RegexMatchTimeoutException ex)
       {
         return false;
+        throw new RegexMatchTimeoutException(ex.Message);
       }
-      catch (ArgumentException e)
+      catch (ArgumentException ex)
       {
         return false;
+        throw new ArgumentException(ex.Message);
       }
 
       try

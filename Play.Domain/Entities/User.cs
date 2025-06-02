@@ -16,5 +16,6 @@ namespace Play.Domain.Entities
     public DateTime? UpdatedAt { get; set; } = null;
     public DateTime? DeletedAt { get; set; } = null;
     public bool IsActive { get; set; } = true;
+    public List<Role> Roles { get; set; } = [];
   }
 }

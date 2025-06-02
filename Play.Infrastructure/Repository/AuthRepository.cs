@@ -1,227 +1,112 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
-using Play.Application.DTOs;
-using Play.Application.IRepository;
-using Play.Domain.Entities;
-using Play.Infrastructure.Common.Helpers;
-using Play.Infrastructure.Data;
+﻿using System;
+using System.Collections.Generic;
+using System.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
+using Dapper;
+using ExcelDataReader.Log;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using Play.Application.DTOs;
+using Play.Domain.Entities;
+using Play.Infrastructure.Common.Helpers;
+using Play.Infrastructure.Common.Repositories;
+using Play.Infrastructure.Common.Utilities;
 
 namespace Play.Infrastructure.Repository
 {
-  public class AuthRepository : IAuth
+  public class AuthRepository : SimpleCrudRepositories<User, string>
   {
-    private readonly ApiDbContext _context;
-    private IConfiguration _config;
+    private readonly IDbConnection _connection;
+    private readonly EnvReader _envReader;
     private readonly IHttpContextAccessor _httpContextAccessor;
-
-    public AuthRepository(ApiDbContext context, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
+    public AuthRepository(IDbConnection connection, IHttpContextAccessor httpContextAccessor) : base(connection)
     {
-      _context = context ?? throw new ArgumentNullException(nameof(context));
-      _config = configuration ?? throw new ArgumentNullException(nameof(configuration));
-      _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
-    }
-
-    private readonly PasswordHasher<User> _passwordHasher = new();
-
-    // Separate method for hashing password
-    private string HashPassword(User user, string plainPassword)
-    {
-      return _passwordHasher.HashPassword(user, plainPassword);
-    }
-
-    // Separate method for verifying password
-    public bool VerifyPassword(User user, string inputPassword)
-    {
-      var result = _passwordHasher.VerifyHashedPassword(user, user.Password, inputPassword);
-      return result == PasswordVerificationResult.Success;
-    }
-
-    public string GenerateAccessToken(IEnumerable<Claim> claims)
-    {
-      var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["AuthConfiguration:Key"]!));
-      var signinCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256);
-
-      // Create a JWT
-      var tokeOptions = new JwtSecurityToken(
-        issuer: _config["AuthConfiguration:Issuer"],
-        audience: _config["AuthConfiguration:Audience"],
-        claims: claims,
-        signingCredentials: signinCredentials,
-        expires: DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]))
-        );
-
-      var tokenString = new JwtSecurityTokenHandler().WriteToken(tokeOptions);
-      return tokenString;
-    }
-
-    public string GenerateRefreshToken()
-    {
-      var randomNumber = new byte[32];
-      using (var rng = RandomNumberGenerator.Create())
-      {
-        rng.GetBytes(randomNumber);
-        return Convert.ToBase64String(randomNumber);
-      }
-    }
-
-    public ClaimsPrincipal GetPrincipalFromExpiredToken(string token)
-    {
-      var tokenValidationParameters = new TokenValidationParameters
-      {
-        ValidateAudience = false, // might be validate the audience and issuer
-        ValidateIssuer = false,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["AuthConfiguration:Key"]!)),
-        ValidateLifetime = false // here saying that we don't care about the token's expiration date
-      };
-      var tokenHandler = new JwtSecurityTokenHandler();
-      SecurityToken securityToken;
-      var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
-      var jwtSecurityToken = securityToken as JwtSecurityToken;
-      if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
-        throw new SecurityTokenException("Invalid token");
-      return principal;
+      _connection = connection;
+      _envReader = new EnvReader();
+      _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<ResponseData<AuthResponse>> Login(AuthenticateDto model)
     {
       try
       {
-        var user = await _context.Users
-         .FirstOrDefaultAsync(u => u.Email == model.Email && u.IsActive && u.DeletedAt == null);
+        // Query user by email
+        var sql = $"""
+                  SELECT role_id, email, first_name, password, last_name, is_active
+                  FROM users
+                  WHERE LOWER(email) = LOWER(@Email) AND is_active = true;
+                  """;
+        var user = await _connection
+          .QuerySingleOrDefaultAsync<User>(sql, new { model.Email });
 
-        if (user == null)
-        {
-          return new ResponseData<AuthResponse>
-          {
-            StatusCode = 400,
-            Message = "Invalid email or password"
-          };
-        }
+        if (user == null || !BCrypt.Net.BCrypt.Verify(model.Password, user.Password))
+          return ResponseData<AuthResponse>.Fail("Invalid email or password", 400);
 
-        // Verify the password using your existing method
-        if (!VerifyPassword(user, model.Password) || !Utils.IsValidEmail(model.Email))
-        {
-          return new ResponseData<AuthResponse>
-          {
-            StatusCode = 422,
-            Message = "Invalid email or password"
-          };
-        }
+        if (!Utils.IsValidEmail(model.Email))
+          return ResponseData<AuthResponse>.Fail("Invalid email format", 400);
 
-        // Generate claims for the JWT token
-        // Include enough information to identify the user without database lookups
+        var roleSql = "SELECT name FROM roles WHERE id = @RoleId";
+        var roleName = await _connection.QuerySingleOrDefaultAsync<string>(roleSql, new { user.RoleId });
+
+        // Generate claims
         var claims = new List<Claim>
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.FirstName),
-            new Claim(ClaimTypes.Email, user.Email)
-        };
-
-        // Generate access token
+                {
+                    new(ClaimTypes.NameIdentifier, user.Id),
+                    new(ClaimTypes.Email, user.Email),
+                    new(ClaimTypes.Role, roleName?? "user")
+                };
+        // Generate tokens
         var accessToken = GenerateAccessToken(claims);
-        var tokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
-        // Set cookies for both tokens
-        SetJWTTokenCookie("access_token", "access_token_expire", accessToken, tokenExpiredTime);
-
-        var refreshToken = GenerateRefreshToken();
-        var refreshTokenExpiredTime = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenRefreshExpiredTime"]));
-        SetJWTTokenCookie("refresh_token", "refresh_token_expire", refreshToken, refreshTokenExpiredTime);
-
-        return ResponseData<AuthResponse>.Success(accessToken, tokenExpiredTime, refreshToken, refreshTokenExpiredTime);
+        var tokenExpiredTime = DateTime.Now.AddHours(_envReader.GetInt("JWT_EXPIRY_HOURS"));
+        var refreshToken = GenerateRefreshToken(claims);
+        var refreshTokenExpiredTime = DateTime.Now.AddHours(_envReader.GetInt("JWT_REFRESH_EXPIRY_HOURS"));
+        // Set cookies
+        SetJWTTokenCookie(_envReader.GetString("ACCESSTOKEN_COOKIENAME"), _envReader.GetString("ACCESSTOKEN_EXPIRY_NAME"), accessToken, tokenExpiredTime);
+        SetJWTTokenCookie(_envReader.GetString("REFRESHTOKEN_COOKIENAME"), _envReader.GetString("REFRESHTOKEN_EXPIRY_NAME"), refreshToken, refreshTokenExpiredTime);
+        return ResponseData<AuthResponse>.Success(
+          accessToken,
+          tokenExpiredTime,
+          refreshToken,
+          refreshTokenExpiredTime
+        );
       }
       catch (Exception ex)
       {
-        return ResponseData<AuthResponse>.Fail("Server error.", 500);
+        return ResponseData<AuthResponse>.Fail($"Login failed: {ex.Message}", 500);
         throw new Exception(ex.Message);
       }
     }
 
-    public ResponseData<AuthResponse> RefreshToken(TokenApiDto model)
+    private string GenerateAccessToken(IEnumerable<Claim> claims)
     {
-      if (model is null)
-        return ResponseData<AuthResponse>.Fail("Invalid request", 400);
-
-      try
-      {
-        string accessToken = model.AccessToken!;
-        string refreshToken = model.RefreshToken!;
-
-        // 1. Get refresh_token and its expire time from cookies
-        var context = _httpContextAccessor.HttpContext;
-        var cookieRefreshToken = context?.Request.Cookies["refresh_token"];
-        var cookieRefreshTokenExpireStr = context?.Request.Cookies["refresh_token_expire"];
-
-        if (cookieRefreshToken == null || cookieRefreshTokenExpireStr == null)
-          return ResponseData<AuthResponse>.Fail("Refresh token not found", 401);
-
-        if (cookieRefreshToken != refreshToken)
-          return ResponseData<AuthResponse>.Fail("Refresh token mismatch", 403);
-
-        if (!DateTime.TryParse(cookieRefreshTokenExpireStr, out var refreshExpireTime))
-          return ResponseData<AuthResponse>.Fail("Invalid refresh token expiration", 400);
-
-        if (refreshExpireTime < DateTime.UtcNow)
-          return ResponseData<AuthResponse>.Fail("Refresh token expired", 401);
-
-        // 2. Get user claims from expired access token
-        var principal = GetPrincipalFromExpiredToken(accessToken);
-        if (principal == null)
-          return ResponseData<AuthResponse>.Fail("Invalid access token", 401);
-
-        // 3. Generate new access token
-        var newAccessToken = GenerateAccessToken(principal.Claims);
-        var newAccessTokenExpire = DateTime.UtcNow.AddHours(Convert.ToInt16(_config["AuthConfiguration:TokenExpiredTime"]));
-
-        // 4. Set new access token cookie
-        SetJWTTokenCookie("access_token", "access_token_expire", newAccessToken, newAccessTokenExpire);
-
-        // reuse the old refresh token (still valid)
-
-        return ResponseData<AuthResponse>.Success(newAccessToken, newAccessTokenExpire, refreshToken, refreshExpireTime);
-      }
-      catch (Exception ex)
-      {
-        return ResponseData<AuthResponse>.Fail("Server error: " + ex.Message, 500);
-        throw new Exception(ex.Message);
-      }
+      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET")));
+      var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+      var token = new JwtSecurityToken(
+          issuer: _envReader.GetString("JWT_ISSUER"),
+          audience: _envReader.GetString("JWT_AUDIENCE"),
+          claims: claims,
+          expires: DateTime.UtcNow.AddMinutes(_envReader.GetInt("JWT_EXPIRY_HOURS")),
+          signingCredentials: creds
+      );
+      return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public Task<ResponseData<UserDto>> Logout()
+    private string GenerateRefreshToken(IEnumerable<Claim> claims)
     {
-      var context = _httpContextAccessor.HttpContext;
-      if (context == null)
-      {
-        return Task.FromResult(ResponseData<UserDto>.Fail("HttpContext not found", 500));
-      }
-
-      var expiredOptions = new CookieOptions
-      {
-        Expires = DateTime.UtcNow.AddDays(-1),
-        Secure = true,
-        HttpOnly = true,
-        SameSite = SameSiteMode.Strict
-      };
-
-      context.Response.Cookies.Append("access_token", "", expiredOptions);
-
-      var readableExpireOptions = new CookieOptions
-      {
-        Expires = DateTime.UtcNow.AddDays(-1),
-        Secure = true,
-        HttpOnly = false,
-        SameSite = SameSiteMode.Strict
-      };
-      context.Response.Cookies.Append("access_token_expire", "", readableExpireOptions);
-
-      return Task.FromResult(ResponseData<UserDto>.Success(200, "Logout successful"));
+      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET")));
+      var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+      var token = new JwtSecurityToken(
+          issuer: _envReader.GetString("JWT_ISSUER"),
+          audience: _envReader.GetString("JWT_AUDIENCE"),
+          claims: claims,
+          expires: DateTime.UtcNow.AddHours(_envReader.GetInt("JWT_REFRESH_EXPIRY_HOURS")),
+          signingCredentials: creds
+      );
+      return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     private void SetJWTTokenCookie(string cookieName, string cookieNameExpire, string token, DateTime expireTime)
@@ -234,13 +119,11 @@ namespace Play.Infrastructure.Repository
         SameSite = SameSiteMode.Strict
       };
 
-      // Set access_token
       _httpContextAccessor.HttpContext?.Response.Cookies.Append(cookieName, token, cookieOptions);
 
-      // Set custom expire_time cookie (readable on client if needed)
       var readableExpireOptions = new CookieOptions
       {
-        HttpOnly = false, // allow JavaScript to read it (optional)
+        HttpOnly = false,
         Expires = expireTime,
         Secure = true,
         SameSite = SameSiteMode.Strict

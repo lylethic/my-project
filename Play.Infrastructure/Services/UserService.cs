@@ -165,6 +165,10 @@ public class UserService(IServiceProvider services, IDbConnection connection) : 
             throw new ArgumentException($"Error importing user.");
         }
     }
+    public async Task<string> ExportUsersAsync(bool? isActive = null, int? maxRows = null)
+    {
+        return await _repo.ExportUsersToExcel(isActive, maxRows);
+    }
     public async Task<PaginatedResponse<UserDto>> GetUsersAsync(PaginationRequest request)
     {
         var data = await _repo.GetUsers(request);

@@ -1,6 +1,7 @@
 using System;
 using System.Data;
 using System.Text;
+using ClosedXML.Excel;
 using Dapper;
 using ExcelDataReader;
 using Microsoft.AspNetCore.Http;
@@ -98,7 +99,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
     {
         var sql = """
             SELECT id, role_id, email, first_name, last_name, created_at,updated_at, deleted_at, is_active 
-            FROM users WHERE id = @Id;
+            FROM users WHERE TRIM(id) = TRIM(@Id);
        """;
         return await connection.QuerySingleOrDefaultAsync<User>(sql, new { Id = id });
     }
@@ -132,6 +133,118 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
         return users;
     }
 
+    public async Task<string> ExportUsersToExcel(bool? isActive = null, int? maxRows = null)
+    {
+        if (maxRows.HasValue && maxRows <= 0)
+        {
+            throw new ArgumentException("maxRows must be a positive integer.", nameof(maxRows));
+        }
+
+        // Create temporary file
+        var tempFile = Path.GetTempFileName();
+
+        using (var fileStream = new FileStream(tempFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096))
+        {
+            // Create workbook and worksheet
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Users");
+
+            // Add header row
+            worksheet.Cell(1, 1).Value = "RoleId";
+            worksheet.Cell(1, 2).Value = "FirstName";
+            worksheet.Cell(1, 3).Value = "LastName";
+            worksheet.Cell(1, 4).Value = "Email";
+            worksheet.Cell(1, 5).Value = "CreatedAt";
+            worksheet.Cell(1, 6).Value = "UpdatedAt";
+            worksheet.Cell(1, 7).Value = "DeletedAt";
+            worksheet.Cell(1, 8).Value = "IsActive";
+
+            // Set fixed column widths to avoid AutoFitColumns
+            worksheet.Column(1).Width = 36; // RoleId (UUID)
+            worksheet.Column(2).Width = 20; // FirstName
+            worksheet.Column(3).Width = 20; // LastName
+            worksheet.Column(4).Width = 30; // Email
+            worksheet.Column(5).Width = 20; // CreatedAt
+            worksheet.Column(6).Width = 20; // UpdatedAt
+            worksheet.Column(7).Width = 20; // DeletedAt
+            worksheet.Column(8).Width = 10; // IsActive
+
+            // Build SQL query
+            var sql = new StringBuilder(@"
+            SELECT id, role_id, first_name, last_name, email, created_at, updated_at, deleted_at, is_active
+            FROM users
+        ");
+            var parameters = new DynamicParameters();
+            var conditions = new List<string>();
+
+            if (isActive.HasValue)
+            {
+                conditions.Add("is_active = @IsActive");
+                parameters.Add("IsActive", isActive.Value);
+            }
+
+            if (conditions.Any())
+            {
+                sql.Append(" WHERE ");
+                sql.Append(string.Join(" AND ", conditions));
+            }
+
+            sql.Append(" ORDER BY id");
+
+            int rowIndex = 2;
+            const int batchSize = 10000; // Process 10,000 rows per batch
+            int totalRowsProcessed = 0;
+            int offset = 0;
+
+            while (true)
+            {
+                int currentBatchSize = maxRows.HasValue ? Math.Min(batchSize, maxRows.Value - totalRowsProcessed) : batchSize;
+                if (currentBatchSize <= 0)
+                    break;
+
+                // Build batch query
+                var batchSql = new StringBuilder(sql.ToString());
+                batchSql.Append(" OFFSET @Offset LIMIT @BatchSize;");
+                parameters.Add("Offset", offset);
+                parameters.Add("BatchSize", currentBatchSize);
+
+                var batch = await _connection.QueryAsync<User>(batchSql.ToString(), parameters);
+                var batchList = batch.ToList();
+                if (batchList.Count == 0)
+                    break;
+
+                // Prepare data for InsertData
+                var data = batchList.Select(user => new object[]
+                {
+                user.RoleId,
+                user.FirstName,
+                user.LastName,
+                user.Email,
+                user.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                user.UpdatedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
+                user.DeletedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
+                user.IsActive
+                });
+
+                // Insert batch data starting at rowIndex
+                worksheet.Cell(rowIndex, 1).InsertData(data);
+                rowIndex += batchList.Count;
+                totalRowsProcessed += batchList.Count;
+
+                if (maxRows.HasValue && totalRowsProcessed >= maxRows.Value)
+                    break;
+
+                offset += batchSize;
+
+                // Save periodically to flush to disk
+                workbook.SaveAs(fileStream);
+            }
+
+            workbook.SaveAs(fileStream);
+        }
+
+        return tempFile;
+    }
     public async Task<List<User>> ImportUsersFromExcel(IFormFile file)
     {
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
@@ -150,10 +263,10 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
             var user = new User
             {
                 Id = Guid.NewGuid().ToString(),
-                RoleId = row[0].ToString(),
-                FirstName = row[1].ToString(),
-                LastName = row[2].ToString(),
-                Email = row[3].ToString(),
+                RoleId = row[0].ToString() ?? throw new ArgumentException("RoleId cannot be null"),
+                FirstName = row[1].ToString() ?? throw new ArgumentException("FirstName cannot be null"),
+                LastName = row[2].ToString() ?? throw new ArgumentException("LastName cannot be null"),
+                Email = row[3].ToString() ?? throw new ArgumentException("Email cannot be null"),
                 Password = BCrypt.Net.BCrypt.HashPassword(row[4].ToString()), // Hash password
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = null,
@@ -170,7 +283,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
                 var insertSql = """
                 INSERT INTO users (id, role_id, first_name, last_name, email, password, created_at, updated_at, deleted_at, is_active)
                 VALUES (@Id, @RoleId, @FirstName, @LastName, @Email, @Password, @CreatedAt, @UpdatedAt, @DeletedAt, @IsActive)
-            """;
+                """;
                 await connection.ExecuteAsync(insertSql, user);
                 users.Add(user);
             }
@@ -178,6 +291,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
 
         return users;
     }
+
 
     public async Task<bool> CheckEmailUnique(string email, string excludeUserId)
     {

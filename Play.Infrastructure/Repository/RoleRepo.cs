@@ -12,7 +12,6 @@ namespace Play.Infrastructure.Repository;
 
 public class RoleRepo(IDbConnection connection) : SimpleCrudRepositories<Role, string>(connection), IScoped
 {
-
     public async Task<Role?> GetRoleById(string id)
     {
         var param = new { Id = id };
