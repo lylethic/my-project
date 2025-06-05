@@ -12,12 +12,14 @@ namespace Play.APIs.Controllers
     public class AuthsController : ControllerBase
     {
         private readonly AuthService _auth;
+        private readonly UserService _userService;
         private readonly ILogger<AuthsController> _logger;
 
-        public AuthsController(AuthService auth, ILogger<AuthsController> logger)
+        public AuthsController(AuthService auth, ILogger<AuthsController> logger, UserService userService)
         {
             _auth = auth;
             _logger = logger;
+            _userService = userService;
         }
 
         [HttpPost]
@@ -54,24 +56,41 @@ namespace Play.APIs.Controllers
             }
         }
 
-        // [Authorize]
-        // [HttpPost("refresh-token")]
-        // public IActionResult RefreshToken(TokenApiDto model)
-        // {
-        //   var result = _auth.RefreshToken(model);
-        //   return Ok(result);
-        // }
+        // 1. Register - Send OTP
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] CreateUserRequest request)
+        {
+            var result = await _userService.RegisterAsync(request);
+            return StatusCode(result.StatusCode, result);
+        }
 
-        // [Authorize]
-        // [HttpPost("logout")]
-        // public IActionResult Logout()
-        // {
-        //   _auth.Logout();
-        //   return Ok(new
-        //   {
-        //     status = 200,
-        //     message = "Logged out"
-        //   });
-        // }
+        // 2. Verify OTP - Create User
+        [HttpPost("verify-otp")]
+        public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpRequest request)
+        {
+            var result = await _userService.VerifyOtpAndCreateUserAsync(request.Email, request.Otp);
+            return StatusCode(result.StatusCode, result);
+        }
     }
+
+    // [Authorize]
+    // [HttpPost("refresh-token")]
+    // public IActionResult RefreshToken(TokenApiDto model)
+    // {
+    //   var result = _auth.RefreshToken(model);
+    //   return Ok(result);
+    // }
+
+    // [Authorize]
+    // [HttpPost("logout")]
+    // public IActionResult Logout()
+    // {
+    //   _auth.Logout();
+    //   return Ok(new
+    //   {
+    //     status = 200,
+    //     message = "Logged out"
+    //   });
+    // }
 }
+

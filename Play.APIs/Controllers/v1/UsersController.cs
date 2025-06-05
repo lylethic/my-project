@@ -1,7 +1,10 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Play.Application.DTOs;
 using Play.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
+using Play.Domain.Entities;
+using System.Security.Claims;
+using Play.Infrastructure.Common.Caching;
 
 namespace Play.APIs.Controllers;
 
@@ -12,19 +15,34 @@ public class UsersController : ControllerBase
 {
     private readonly UserService _userService;
     private readonly ILogger<UsersController> _logger;
+    private readonly IRedisCacheService _cache;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public UsersController(UserService userService, ILogger<UsersController> logger)
+    public UsersController(UserService userService, ILogger<UsersController> logger, IRedisCacheService redisCacheService, IHttpContextAccessor httpContextAccessor)
     {
         _userService = userService;
         _logger = logger;
+        _cache = redisCacheService;
+        _httpContextAccessor = httpContextAccessor;
     }
 
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] PaginationRequest request)
     {
         try
         {
-            var result = await _userService.GetUsersAsync(request);
+            var userId = _httpContextAccessor.HttpContext?.User
+                    .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            var cacheKey = $"users_{userId}";
+            var result = _cache.GetData<PaginatedResponse<UserDto>>(cacheKey);
+            if (result is not null)
+            {
+                return Ok(result);
+            }
+            result = await _userService.GetUsersAsync(request);
+            _cache.SetData("users", result.Data);
             return Ok(result);
         }
         catch (ArgumentException ex)
@@ -33,7 +51,7 @@ public class UsersController : ControllerBase
         }
     }
 
-    [Authorize(Policy = "RequireAdminRole")]
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUserById(string id)
     {
@@ -41,6 +59,7 @@ public class UsersController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpPost]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
     {
@@ -62,6 +81,7 @@ public class UsersController : ControllerBase
         }
     }
 
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpPost("bulk")]
     public async Task<IActionResult> Import(IFormFile file)
     {
@@ -79,6 +99,7 @@ public class UsersController : ControllerBase
         }
     }
 
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpGet("export")]
     public async Task<IActionResult> ExportUsers(bool? isActive = null, int? maxRows = null)
     {
@@ -99,6 +120,7 @@ public class UsersController : ControllerBase
 
     }
 
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpPatch("{id}")]
     public async Task<IActionResult> UpdateUser(string id, UpdateUserRequest request)
     {
@@ -117,6 +139,7 @@ public class UsersController : ControllerBase
             return StatusCode(500, new { message = "An error occurred while updating the user." });
         }
     }
+    [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteUser(string id)
     {

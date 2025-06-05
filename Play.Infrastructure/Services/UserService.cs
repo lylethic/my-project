@@ -1,16 +1,20 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.Data;
+using System.Security.Claims;
+using Dapper;
 using Microsoft.AspNetCore.Http;
 using Play.Application.DTOs;
 using Play.Domain.Entities;
+using Play.Infrastructure.Common.Caching;
 using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Services;
+using Play.Infrastructure.Common.Utilities;
 using Play.Infrastructure.Repository;
 
 namespace Play.Infrastructure.Services;
 
-public class UserService(IServiceProvider services, IDbConnection connection) : BaseService(services), IScoped
+public class UserService(IEmailService emailService, IServiceProvider services, IDbConnection connection, IRedisCacheService cache, IHttpContextAccessor httpContextAccessore) : BaseService(services), IScoped
 {
     private readonly UserRepo _repo = new UserRepo(connection);
     private readonly RoleRepo _roleRepo = new RoleRepo(connection);
@@ -171,14 +175,75 @@ public class UserService(IServiceProvider services, IDbConnection connection) : 
     }
     public async Task<PaginatedResponse<UserDto>> GetUsersAsync(PaginationRequest request)
     {
+        var userId = httpContextAccessore.HttpContext?.User
+                    .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var cacheKey = $"users_{userId}_{request.IsActive}_{request.LastCreatedAt}_{request.PageSize}";
+
+        // 1. Try to get from cache
+        var cachedData = cache.GetData<List<UserDto>>(cacheKey);
+        if (cachedData != null)
+        {
+            return new PaginatedResponse<UserDto>
+            {
+                Data = cachedData,
+                PageSize = request.PageSize,
+                NextCursor = cachedData.LastOrDefault()?.CreatedAt
+            };
+        }
+
+        // 2. Fetch from database
         var data = await _repo.GetUsers(request);
         var result = _mapper.Map<List<UserDto>>(data);
-        var nextCursor = result.LastOrDefault()?.CreatedAt;
+
+        // 3. Cache the result (for 5 minutes)
+        cache.SetData(cacheKey, result, TimeSpan.FromMinutes(5));
+        // Console.WriteLine($"[CACHE] Set key: {cacheKey}, value: {JsonSerializer.Serialize(data)}");
+
         return new PaginatedResponse<UserDto>
         {
             Data = result,
             PageSize = request.PageSize,
-            NextCursor = nextCursor
+            NextCursor = result.LastOrDefault()?.CreatedAt
         };
+    }
+
+    public async Task<ResponseData<string>> RegisterAsync(CreateUserRequest request)
+    {
+        if (await IsEmailUnique(request.Email) == false)
+            return ResponseData<string>.Fail("Email already registered", 400);
+
+        var otp = Otp.GenerateOTP(6);
+
+        // Cache OTP and user info
+        cache.SetData($"otp_{request.Email}", otp, TimeSpan.FromMinutes(5));
+        cache.SetData($"pending_user_{request.Email}", request, TimeSpan.FromMinutes(10));
+
+        await emailService.SendEmailAsync(request.Email, "Your OTP Code", $"Your verification code is: <b>{otp}</b>");
+
+        return ResponseData<string>.Success("OTP sent to email. Please verify.");
+    }
+    public async Task<ResponseData<string>> VerifyOtpAndCreateUserAsync(string email, string otp)
+    {
+        var cachedOtp = cache.GetData<string>($"otp_{email}");
+        if (cachedOtp is null || cachedOtp != otp)
+            return ResponseData<string>.Fail("Invalid or expired OTP", 400);
+
+        var registerDto = cache.GetData<User>($"pending_user_{email}");
+        if (registerDto == null)
+            return ResponseData<string>.Fail("Registration data expired", 400);
+
+        await _repo.Create(registerDto);
+
+        await cache.Remove($"otp_{email}");
+        await cache.Remove($"pending_user_{email}");
+
+        return ResponseData<string>.Success("User created successfully.");
+    }
+
+    public async Task<bool> IsEmailUnique(string email)
+    {
+        var sql = "SELECT COUNT(1) FROM users WHERE email = @Email";
+        var count = await connection.ExecuteScalarAsync<int>(sql, new { Email = email });
+        return count == 0;
     }
 }

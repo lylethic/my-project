@@ -1,50 +1,68 @@
-version: '3.5'
-
 networks:
   dev:
     driver: bridge
 
 services:
-  api_service: 
+  api_service:
     image: myproject:latest
     depends_on:
       app_db:
         condition: service_healthy
     container_name: myproject-services
     ports:
-      - "8088:80"
-    build: 
+      - '8088:80'
+    build:
       context: .
       dockerfile: Dockerfile
       args:
-        PROJECT_PATH: "Play.APIs/Play.APIs.csproj" 
+        PROJECT_PATH: 'Play.APIs/Play.APIs.csproj'
     environment:
-      - ConnectionStrings__DefaultConnection=Host=app_db;Port=5432;Database=SampleDbDriver;Username=postgres;Password=postgres;Pooling=true;
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION}
       - ASPNETCORE_URLS=http://+:80
       - ASPNETCORE_ENVIRONMENT=Development
+    volumes:
+      - .env:/app/.env     
     restart: unless-stopped
-    networks: 
+    networks:
+      - dev
+      
+  redis:
+    image: redis:7-alpine
+    container_name: myproject-redis
+    ports:
+      - '6379:6379'
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
       - dev
 
-  app_db: 
+  app_db:
     image: postgres:16
     container_name: app_db
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=SampleDbDriver
-    ports: 
-      - "5433:5432"
+    ports:
+      - '5433:5432'
     restart: always
-    volumes: 
+    volumes:
       - app_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 5s
       retries: 5
-    networks: 
+    networks:
       - dev
 
-volumes: 
+volumes:
   app_data:
+  redis_data:

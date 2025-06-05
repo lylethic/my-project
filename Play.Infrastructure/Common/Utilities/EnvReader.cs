@@ -9,7 +9,23 @@ public class EnvReader
     public EnvReader(string envFilePath = ".env")
     {
         _envVariables = new Dictionary<string, string>();
-        // Resolve path relative to project root
+
+        var cwdPath = Path.Combine(Directory.GetCurrentDirectory(), envFilePath);
+        if (File.Exists(cwdPath))
+        {
+            Load(cwdPath);
+            return;
+        }
+
+        // Docker case: try absolute path
+        var dockerPath = Path.Combine("/app", envFilePath);
+        if (File.Exists(dockerPath))
+        {
+            Load(dockerPath);
+            return;
+        }
+
+        // Fallback for local dev (outside docker)
         var basePath = AppDomain.CurrentDomain.BaseDirectory;
         var solutionPath = Path.GetFullPath(Path.Combine(basePath, @"..\..\..\.."));
         var fullPath = Path.Combine(solutionPath, envFilePath);

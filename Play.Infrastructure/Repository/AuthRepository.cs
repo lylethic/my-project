@@ -36,7 +36,7 @@ namespace Play.Infrastructure.Repository
       {
         // Query user by email
         var sql = $"""
-                  SELECT role_id, email, first_name, password, last_name, is_active
+                  SELECT id, role_id, email, first_name, password, last_name, is_active
                   FROM users
                   WHERE LOWER(email) = LOWER(@Email) AND is_active = true;
                   """;
@@ -81,6 +81,38 @@ namespace Play.Infrastructure.Repository
       }
     }
 
+    public string? ValidateJwtToken(string? token)
+    {
+      if (token == null)
+        return null;
+
+      var tokenHandler = new JwtSecurityTokenHandler();
+      var key = Encoding.ASCII.GetBytes(_envReader.GetString("API_SECRET"));
+      try
+      {
+        tokenHandler.ValidateToken(token, new TokenValidationParameters
+        {
+          ValidateIssuerSigningKey = true,
+          IssuerSigningKey = new SymmetricSecurityKey(key),
+          ValidateIssuer = false,
+          ValidateAudience = false,
+          // set clockskew to zero so tokens expire exactly at token expiration time (instead of 5 minutes later)
+          ClockSkew = TimeSpan.Zero
+        }, out SecurityToken validatedToken);
+
+        var jwtToken = (JwtSecurityToken)validatedToken;
+        var userId = jwtToken.Claims.First(x => x.Type == "id").Value;
+
+        // return user id from JWT token if validation successful
+        return userId;
+      }
+      catch
+      {
+        // return null if validation fails
+        return null;
+      }
+    }
+
     private string GenerateAccessToken(IEnumerable<Claim> claims)
     {
       var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET")));
@@ -89,7 +121,7 @@ namespace Play.Infrastructure.Repository
           issuer: _envReader.GetString("JWT_ISSUER"),
           audience: _envReader.GetString("JWT_AUDIENCE"),
           claims: claims,
-          expires: DateTime.UtcNow.AddMinutes(_envReader.GetInt("JWT_EXPIRY_HOURS")),
+          expires: DateTime.UtcNow.AddHours(_envReader.GetInt("JWT_EXPIRY_HOURS")),
           signingCredentials: creds
       );
       return new JwtSecurityTokenHandler().WriteToken(token);

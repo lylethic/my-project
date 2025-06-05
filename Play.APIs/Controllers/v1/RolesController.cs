@@ -10,7 +10,7 @@ namespace Play.APIs.Controllers
 {
     [Route("api/roles")]
     [ApiController]
-    //[Authorize]
+    [Authorize]
     /// <summary> Key Points 
     /// Roles DELETE because it removes a resource.
     /// Returns 204 No Content on success.
@@ -42,6 +42,8 @@ namespace Play.APIs.Controllers
             }
         }
 
+
+        [Authorize(Policy = "RequireOwnerAdminRole")]
         [HttpPost]
         public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest request)
         {
@@ -65,6 +67,7 @@ namespace Play.APIs.Controllers
             return Ok(result);
         }
 
+        [Authorize(Policy = "RequireOwnerRole")]
         [HttpPatch("{id}")]
         public async Task<IActionResult> UpdateRole(string id, UpdateRoleRequest request)
         {
@@ -85,6 +88,7 @@ namespace Play.APIs.Controllers
             }
         }
 
+        [Authorize(Policy = "RequireOwnerRole")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteRole(string id)
         {
@@ -103,98 +107,5 @@ namespace Play.APIs.Controllers
                 return BadRequest(new { message = "An error occurred while deleting the role." });
             }
         }
-
-        // GET: api/v1/roles
-        // [HttpGet]
-        // //[Authorize(Policy = "RequireOwnerAdminRole")]
-        // public async Task<IActionResult> GetRoles()
-        // {
-        //   var result = await _roleService.GetRolesAsync();
-        //   if (result.StatusCode != 200)
-        //     return StatusCode(
-        //       result.StatusCode,
-        //       new
-        //       {
-        //         status = result.StatusCode,
-        //         message = result.Message
-        //       });
-
-        //   return Ok(new
-        //   {
-        //     status = result.StatusCode,
-        //     message = result.Message,
-        //     data = result.ListData
-        //   });
-        // }
-
-        // // GET: api/v1/roles/{id}
-        // [HttpGet("{id}")]
-        // public async Task<IActionResult> GetRole(Guid id)
-        // {
-        //   var result = await _roleService.GetRoleAsync(id);
-        //   if (result.StatusCode != 200)
-        //     return NotFound(result);
-
-        //   return StatusCode(result.StatusCode,
-        //     new
-        //     {
-        //       status = result.StatusCode,
-        //       message = result.Message,
-        //       data = result.Data
-        //     });
-        // }
-
-        // // POST: api/v1/roles
-        // [HttpPost]
-        // //[Authorize(Policy = "RequireOwnerAdminRole")]
-        // public async Task<IActionResult> CreateRole(CreateRoleDto entity)
-        // {
-        //   if (entity is null) return BadRequest(new { message = "Please enter your role." });
-
-        //   var result = await _roleService.AddRoleAsync(entity);
-        //   if (result.StatusCode != 200) return StatusCode(result.StatusCode, new
-        //   {
-        //     status = result.StatusCode,
-        //     message = result.Message
-        //   });
-
-        //   return StatusCode(result.StatusCode, new
-        //   {
-        //     status = result.StatusCode,
-        //     message = result.Message
-        //     ,
-        //     data = result.Data
-        //   });
-        // }
-
-        // [HttpPost("add")]
-        // public async Task<IActionResult> Create(CreateRoleRequest request)
-        // {
-        //   await _roleService.CreateRoleAsync(request);
-        //   return Ok();
-        // }
-
-        // // PUT: api/v1/roles/{id}
-        // [HttpPut("{id}")]
-        // [Authorize(Policy = "RequireOwnerAdminRole")]
-        // public async Task<IActionResult> UpdateRole(Guid id, UpdateRoleDto entity)
-        // {
-        //   var role = await _roleService.UpdateRoleAsync(id, entity);
-        //   if (role.StatusCode == 404)
-        //     return NotFound(role);
-
-        //   return NoContent();
-        // }
-
-        // // DELETE: api/v1/roles/{id}
-        // [HttpDelete("{id}")]
-        // [Authorize(Policy = "RequireOwnerAdminRole")]
-        // public async Task<IActionResult> DeleteRole(Guid id)
-        // {
-        //   var result = await _roleService.DeleteRoleAsync(id);
-        //   if (result.StatusCode == 404) return NotFound(result);
-
-        //   return NoContent();
-        // }
     }
 }

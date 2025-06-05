@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Play.APIs.Configuration;
 using Play.Infrastructure.Common.Utilities;
+using Play.Infrastructure.Common.Caching;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,14 @@ var builder = WebApplication.CreateBuilder(args);
     var services = builder.Services;
     var env = builder.Environment;
     var jwtConfig = new JwtConfig();
+    var envReader = new EnvReader();
+    var emailSys = new EmailSys(
+   host: envReader.GetString("SMTP_HOST")!,
+   port: int.Parse(envReader.GetString("SMTP_PORT")!),
+   user: envReader.GetString("SMTP_USER")!,
+   pass: envReader.GetString("SMTP_PASS")!
+   );
+
     // Add services to the container.
     var conn = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -28,9 +37,15 @@ var builder = WebApplication.CreateBuilder(args);
 
     services.AddScoped<IDbConnection>(provider =>
       {
-          var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+          var connectionString = envReader.GetString("DB_CONNECTION") ?? conn;
           return new Npgsql.NpgsqlConnection(connectionString);
       });
+
+    services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = builder.Configuration.GetConnectionString("Redis");
+        options.InstanceName = "PlayRedisInstance";
+    });
 
     services.AddAuthentication(options =>
      {
@@ -40,6 +55,20 @@ var builder = WebApplication.CreateBuilder(args);
      })
      .AddJwtBearer(options =>
      {
+         options.Events = new JwtBearerEvents
+         {
+             OnMessageReceived = context =>
+           {
+               var cookieName = envReader.GetString("ACCESSTOKEN_COOKIENAME");
+               var accessToken = context.Request.Cookies[cookieName];
+               if (!string.IsNullOrEmpty(accessToken))
+               {
+                   context.Token = accessToken;
+               }
+
+               return Task.CompletedTask;
+           }
+         };
          options.TokenValidationParameters = new TokenValidationParameters
          {
              ValidateIssuer = true,
@@ -49,16 +78,6 @@ var builder = WebApplication.CreateBuilder(args);
              ValidIssuer = jwtConfig.Issuer,
              ValidAudience = jwtConfig.Audience,
              IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig.Secret))
-         };
-         options.Events = new JwtBearerEvents
-         {
-             OnMessageReceived = context =>
-           {
-               var envReader = new EnvReader();
-               var cookieName = envReader.GetString("ACCESSTOKEN_COOKIENAME");
-               context.Token = context.Request.Cookies[cookieName];
-               return Task.CompletedTask;
-           }
          };
      });
 
@@ -140,6 +159,10 @@ var builder = WebApplication.CreateBuilder(args);
 
     // DI
     services.AddSingleton<DataContext>();
+    services.AddScoped<IRedisCacheService, RedisCacheService>();
+
+    services.AddSingleton<IEmailService>(emailSys);
+
 
     // Add logging configuration
     builder.Logging.ClearProviders();

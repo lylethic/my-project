@@ -1,6 +1,7 @@
 using System;
 using System.Data;
 using System.Text;
+using System.Text.Json;
 using ClosedXML.Excel;
 using Dapper;
 using ExcelDataReader;
@@ -9,6 +10,7 @@ using Play.Application.DTOs;
 using Play.Domain.Entities;
 using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Repositories;
+using Play.Infrastructure.Common.Utilities;
 
 namespace Play.Infrastructure.Repository;
 
@@ -291,8 +293,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
 
         return users;
     }
-
-
+    // Check email uniqueness excluding a specific user ID
     public async Task<bool> CheckEmailUnique(string email, string excludeUserId)
     {
         const string sql = @"
@@ -310,6 +311,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
         return count == 0;
     }
 
+    // Check email is exiting in the database
     public async Task<bool> IsEmailUnique(string email)
     {
         var sql = "SELECT COUNT(1) FROM users WHERE email = @Email";
