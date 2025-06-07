@@ -4,7 +4,7 @@ using Play.Application.DTOs;
 using Play.Application.IRepository;
 using System.Diagnostics;
 
-namespace Play.APIs.Controllers;
+namespace Play.APIs.Controllers.v1;
 
 [Route("api/products")]
 [ApiController]

@@ -1,102 +1,43 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Play.APIs.Extensions;
 using Play.APIs.Middleware;
 using Play.Infrastructure.Common.Helpers;
-using System.Data;
-using System.Text;
-using System.Text.Json.Serialization;
 using Play.APIs.Configuration;
 using Play.Infrastructure.Common.Utilities;
 using Play.Infrastructure.Common.Caching;
+using Asp.Versioning;
+using Microsoft.Extensions.Options;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 var builder = WebApplication.CreateBuilder(args);
 
 {
     var services = builder.Services;
-    var env = builder.Environment;
     var jwtConfig = new JwtConfig();
     var envReader = new EnvReader();
-    var emailSys = new EmailSys(
-   host: envReader.GetString("SMTP_HOST")!,
-   port: int.Parse(envReader.GetString("SMTP_PORT")!),
-   user: envReader.GetString("SMTP_USER")!,
-   pass: envReader.GetString("SMTP_PASS")!
-   );
-
-    // Add services to the container.
-    var conn = builder.Configuration.GetConnectionString("DefaultConnection");
 
     services.AddSingleton<JwtConfig>();
 
     // Configure Dapper global settings
     Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
-    services.AddScoped<IDbConnection>(provider =>
-      {
-          var connectionString = envReader.GetString("DB_CONNECTION") ?? conn;
-          return new Npgsql.NpgsqlConnection(connectionString);
-      });
+    // Add Redis configuration
+    builder.Services.AddRedisConfiguration(builder.Configuration);
 
-    services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = builder.Configuration.GetConnectionString("Redis");
-        options.InstanceName = "PlayRedisInstance";
-    });
+    services.AddConnectConfiguration(builder.Configuration);
+    services.AddSignalRConfiguration();
 
-    services.AddAuthentication(options =>
-     {
-         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-         options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-         options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-     })
-     .AddJwtBearer(options =>
-     {
-         options.Events = new JwtBearerEvents
-         {
-             OnMessageReceived = context =>
-           {
-               var cookieName = envReader.GetString("ACCESSTOKEN_COOKIENAME");
-               var accessToken = context.Request.Cookies[cookieName];
-               if (!string.IsNullOrEmpty(accessToken))
-               {
-                   context.Token = accessToken;
-               }
-
-               return Task.CompletedTask;
-           }
-         };
-         options.TokenValidationParameters = new TokenValidationParameters
-         {
-             ValidateIssuer = true,
-             ValidateAudience = true,
-             ValidateLifetime = true,
-             ValidateIssuerSigningKey = true,
-             ValidIssuer = jwtConfig.Issuer,
-             ValidAudience = jwtConfig.Audience,
-             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig.Secret))
-         };
-     });
-
-    // Add authorization with policy
-    services.AddAuthorization(options =>
-     {
-         options.AddPolicy("RequireOwnerAdminRole", policy => policy.RequireRole("owner", "admin"));
-         options.AddPolicy("RequireOwnerRole", policy => policy.RequireRole("owner"));
-         options.AddPolicy("RequireAdminRole", policy => policy.RequireRole("admin"));
-         options.AddPolicy("RequireUserRole", policy => policy.RequireRole("user"));
-     });
+    services.AddJwtAuthentication(builder.Configuration);
 
     services.AddControllers().AddJsonOptions(x =>
      {
-         // serialize enums as strings in api responses (e.g. Role)
          x.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
      }); ;
-    // Register ALL your application services at once!
+
     services.AddApplicationServices();
+    services.AddCustomAuthorization();
 
     services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
@@ -108,61 +49,32 @@ var builder = WebApplication.CreateBuilder(args);
     services.AddCors();
 
     // Add API versioning
-    services.AddApiVersioning(options =>
-     {
-         options.DefaultApiVersion = new ApiVersion(1, 0); // Set default API version to v1
-         options.AssumeDefaultVersionWhenUnspecified = true; // Assume default version when version is not specified
-         options.ReportApiVersions = true; // Expose the API version in the response headers
-     });
-
-    // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-    services.AddEndpointsApiExplorer();
-    services.AddSwaggerGen(c =>
-     {
-         c.SwaggerDoc("v1", new OpenApiInfo
-         {
-             Title = "My API",
-             Version = "v1"
-         });
-
-         // Add Bearer token support
-         c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-         {
-             In = ParameterLocation.Header,
-             Description = "Please enter a valid token",
-             Name = "Authorization",
-             Type = SecuritySchemeType.Http,
-             BearerFormat = "JWT",
-             Scheme = "Bearer"
-         });
-
-         // Add security requirement for Bearer token
-         c.AddSecurityRequirement(new OpenApiSecurityRequirement
-         {
+    services.AddApiVersioning(
+        options =>
         {
-            new OpenApiSecurityScheme
+            options.DefaultApiVersion = new ApiVersion(1, 0); // Set default API version to v1
+            options.AssumeDefaultVersionWhenUnspecified = true; // Assume default version when version is not specified
+            options.ReportApiVersions = true; // Expose the API version in the response headers
+        })
+        .AddApiExplorer(
+            options =>
             {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-         });
-     });
+                options.GroupNameFormat = "'v'VVV"; // Format for API version in the group name
+                options.SubstituteApiVersionInUrl = true; // Substitute the API version in the URL
+            }
+        );
+
+    services.AddEndpointsApiExplorer();
+    services.AddSwaggerGen();
 
     // Add HttpContextAccessor service
     services.AddHttpContextAccessor();
     services.AddMemoryCache();
 
     // DI
-    services.AddSingleton<DataContext>();
+    // services.AddSingleton<DataContext>();
     services.AddScoped<IRedisCacheService, RedisCacheService>();
-
-    services.AddSingleton<IEmailService>(emailSys);
-
+    builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
 
     // Add logging configuration
     builder.Logging.ClearProviders();
@@ -171,17 +83,20 @@ var builder = WebApplication.CreateBuilder(args);
 }
 
 var app = builder.Build();
-// ensure database and tables exist
-{
-    using var scope = app.Services.CreateScope();
-    var context = scope.ServiceProvider.GetRequiredService<DataContext>();
-    await context.Init();
-}
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(
+         options =>
+    {
+        var descriptions = app.DescribeApiVersions();
+        foreach (var description in descriptions)
+        {
+            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
+        }
+    }
+    );
 }
 // configure HTTP request pipeline
 {

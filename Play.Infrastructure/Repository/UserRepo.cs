@@ -218,14 +218,14 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
                 // Prepare data for InsertData
                 var data = batchList.Select(user => new object[]
                 {
-                user.RoleId,
-                user.FirstName,
-                user.LastName,
-                user.Email,
-                user.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
-                user.UpdatedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
-                user.DeletedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
-                user.IsActive
+                    user.RoleId,
+                    user.FirstName,
+                    user.LastName,
+                    user.Email,
+                    user.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                    user.UpdatedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
+                    user.DeletedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
+                    user.IsActive
                 });
 
                 // Insert batch data starting at rowIndex

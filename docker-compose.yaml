@@ -8,6 +8,8 @@ services:
     depends_on:
       app_db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     container_name: myproject-services
     ports:
       - '8088:80'
@@ -18,6 +20,7 @@ services:
         PROJECT_PATH: 'Play.APIs/Play.APIs.csproj'
     environment:
       - ConnectionStrings__DefaultConnection=${DB_CONNECTION}
+      - REDIS_CONNECTION=redis:6379
       - ASPNETCORE_URLS=http://+:80
       - ASPNETCORE_ENVIRONMENT=Development
     volumes:
@@ -37,9 +40,10 @@ services:
       - redis_data:/data
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - dev
 
@@ -57,9 +61,10 @@ services:
       - app_data:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
+      start_period: 10s
     networks:
       - dev
 

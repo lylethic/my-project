@@ -1,0 +1,21 @@
+using System;
+using System.Data;
+using Play.Infrastructure.Common.Utilities;
+
+namespace Play.APIs.Configuration;
+
+public static class ConnectConfig
+{
+    public static IServiceCollection AddConnectConfiguration(this IServiceCollection services, IConfiguration configuration)
+    {
+        // Add services to the container.
+        var conn = configuration.GetConnectionString("DefaultConnection");
+        var envReader = new EnvReader();
+        services.AddScoped<IDbConnection>(provider =>
+              {
+                  var connectionString = envReader.GetString("DB_CONNECTION") ?? conn;
+                  return new Npgsql.NpgsqlConnection(connectionString);
+              });
+        return services;
+    }
+}

@@ -6,7 +6,7 @@ using Play.Application.DTOs;
 using Play.Infrastructure.Repository;
 using Play.Infrastructure.Services;
 
-namespace Play.APIs.Controllers
+namespace Play.APIs.Controllers.v1
 {
     [Route("api/roles")]
     [ApiController]

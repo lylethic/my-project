@@ -100,3 +100,7 @@ Manages data access and related components:
 ### Update Database
 
 - dotnet ef database update --project .\Play.Infrastructure\Play.Infrastructure.csproj --startup-project .\Play.APIs\Play.APIs.csproj
+
+### Redis (docker)
+
+- Use redis-cli inside the container: `docker exec -it myproject-redis redis-cli`
