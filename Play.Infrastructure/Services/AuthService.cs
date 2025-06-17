@@ -27,4 +27,14 @@ public class AuthService(IServiceProvider services, IDbConnection connection, IH
 
         return await _repo.Login(model);
     }
+
+    public ResponseData<AuthResponse> RefreshTokenAsync(TokenApiDto model)
+    {
+        return _repo.RefreshToken(model);
+    }
+
+    public Task<ResponseData<UserDto>> LogoutAsync()
+    {
+        return _repo.Logout();
+    }
 }

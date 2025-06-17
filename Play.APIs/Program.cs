@@ -24,9 +24,9 @@ var builder = WebApplication.CreateBuilder(args);
     Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
     // Add Redis configuration
-    builder.Services.AddRedisConfiguration(builder.Configuration);
+    services.AddRedisConfiguration(builder.Configuration);
 
-    services.AddConnectConfiguration(builder.Configuration);
+    services.AddDbConnectConfiguration(builder.Configuration);
     services.AddSignalRConfiguration();
 
     services.AddJwtAuthentication(builder.Configuration);
@@ -72,8 +72,8 @@ var builder = WebApplication.CreateBuilder(args);
     services.AddMemoryCache();
 
     // DI
+    builder.Services.AddScoped<ICacheService, RedisCacheService>();
     // services.AddSingleton<DataContext>();
-    services.AddScoped<IRedisCacheService, RedisCacheService>();
     builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
 
     // Add logging configuration
@@ -106,6 +106,8 @@ if (app.Environment.IsDevelopment())
           .AllowAnyMethod()
           .AllowAnyHeader());
 
+    app.UseOutputCache();
+
     // global error handler
     app.UseMiddleware<ErrorHandlerMiddleware>();
 
@@ -124,7 +126,6 @@ if (app.Environment.IsDevelopment())
 
     app.MapControllers();
 
-    app.UseResponseCaching();
 }
 
 app.Run();

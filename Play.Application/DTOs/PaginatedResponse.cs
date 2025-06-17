@@ -4,6 +4,7 @@ public class PaginatedResponse<T>
 {
     public List<T> Data { get; set; } = [];
     public int PageSize { get; set; }
+    public int Records { get; set; }
     public DateTime? NextCursor { get; set; } //`created_at` of the last record
 }
 

@@ -4,9 +4,9 @@ using Play.Infrastructure.Common.Utilities;
 
 namespace Play.APIs.Configuration;
 
-public static class ConnectConfig
+public static class DbConnectConfig
 {
-    public static IServiceCollection AddConnectConfiguration(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddDbConnectConfiguration(this IServiceCollection services, IConfiguration configuration)
     {
         // Add services to the container.
         var conn = configuration.GetConnectionString("DefaultConnection");

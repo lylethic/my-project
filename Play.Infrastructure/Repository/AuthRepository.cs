@@ -81,6 +81,150 @@ namespace Play.Infrastructure.Repository
       }
     }
 
+    public ResponseData<AuthResponse> RefreshToken(TokenApiDto model)
+    {
+      if (model is null)
+        return ResponseData<AuthResponse>.Fail("Invalid request", 400);
+
+      try
+      {
+        string accessToken = model.AccessToken!;
+        string refreshToken = model.RefreshToken!;
+
+        // 1. Get refresh_token and its expire time from cookies
+        var context = _httpContextAccessor.HttpContext;
+        var cookieRefreshToken = context?.Request.Cookies["refresh_token"];
+        var cookieRefreshTokenExpireStr = context?.Request.Cookies["refresh_token_expire"];
+
+        if (cookieRefreshToken == null || cookieRefreshTokenExpireStr == null)
+          return ResponseData<AuthResponse>.Fail("Refresh token not found", 401);
+
+        if (cookieRefreshToken != refreshToken)
+          return ResponseData<AuthResponse>.Fail("Refresh token mismatch", 403);
+
+        if (!DateTime.TryParse(cookieRefreshTokenExpireStr, out var refreshExpireTime))
+          return ResponseData<AuthResponse>.Fail("Invalid refresh token expiration", 400);
+
+        if (refreshExpireTime < DateTime.UtcNow)
+          return ResponseData<AuthResponse>.Fail("Refresh token expired", 401);
+
+        // 2. Get user claims from expired access token
+        var principal = GetPrincipalFromExpiredToken(accessToken);
+        if (principal == null)
+          return ResponseData<AuthResponse>.Fail("Invalid access token", 401);
+
+        // 3. Generate new access token
+        var newAccessToken = GenerateAccessToken(principal.Claims);
+        var newAccessTokenExpire = DateTime.UtcNow.AddHours(Convert.ToInt16(_envReader.GetString("JWT_EXPIRY_HOURS")));
+
+        // 4. Set new access token cookie
+        SetJWTTokenCookie("access_token", "access_token_expire", newAccessToken, newAccessTokenExpire);
+
+        // reuse the old refresh token (still valid)
+
+        return ResponseData<AuthResponse>.Success(newAccessToken, newAccessTokenExpire, refreshToken, refreshExpireTime);
+      }
+      catch (Exception ex)
+      {
+        return ResponseData<AuthResponse>.Fail("Server error: " + ex.Message, 500);
+        throw new Exception(ex.Message);
+      }
+    }
+
+    public Task<ResponseData<UserDto>> Logout()
+    {
+      var context = _httpContextAccessor.HttpContext;
+      if (context == null)
+      {
+        return Task.FromResult(ResponseData<UserDto>.Fail("HttpContext not found", 500));
+      }
+
+      try
+      {
+        // Get cookie names from environment (same as login)
+        var accessTokenCookieName = _envReader.GetString("ACCESSTOKEN_COOKIENAME") ?? "access_token";
+        var accessTokenExpiryCookieName = _envReader.GetString("ACCESSTOKEN_EXPIRY_NAME") ?? "access_token_expire";
+        var refreshTokenCookieName = _envReader.GetString("REFRESHTOKEN_COOKIENAME") ?? "refresh_token";
+        var refreshTokenExpiryCookieName = _envReader.GetString("REFRESHTOKEN_EXPIRY_NAME") ?? "refresh_token_expire";
+
+        // Create expired cookie options for HttpOnly cookies (secure tokens)
+        var secureExpiredOptions = new CookieOptions
+        {
+          Expires = DateTime.UtcNow.AddDays(-1), // Set to past date to expire
+          Secure = true,
+          HttpOnly = true,
+          SameSite = SameSiteMode.Strict,
+          Path = "/" // Ensure we're clearing the right path
+        };
+
+        // Create expired cookie options for readable cookies (expiry times)
+        var readableExpiredOptions = new CookieOptions
+        {
+          Expires = DateTime.UtcNow.AddDays(-1),
+          Secure = true,
+          HttpOnly = false, // These can be read by JavaScript
+          SameSite = SameSiteMode.Strict,
+          Path = "/"
+        };
+
+        // Remove all token-related cookies
+        context.Response.Cookies.Append(accessTokenCookieName, "", secureExpiredOptions);
+        context.Response.Cookies.Append(accessTokenExpiryCookieName, "", readableExpiredOptions);
+        context.Response.Cookies.Append(refreshTokenCookieName, "", secureExpiredOptions);
+        context.Response.Cookies.Append(refreshTokenExpiryCookieName, "", readableExpiredOptions);
+
+        // Optional: Clear any additional authentication cookies
+        ClearAdditionalAuthCookies(context, readableExpiredOptions);
+
+        // Optional: Add the token to a blacklist (for enhanced security)
+        // await BlacklistCurrentToken(context);
+
+        return Task.FromResult(ResponseData<UserDto>.Success(200, "Logout successful"));
+      }
+      catch (Exception ex)
+      {
+        return Task.FromResult(ResponseData<UserDto>.Fail($"Logout failed: {ex.Message}", 500));
+      }
+    }
+    // HELPER METHOD: Clear additional authentication cookies
+    private void ClearAdditionalAuthCookies(HttpContext context, CookieOptions expiredOptions)
+    {
+      // Clear any other auth-related cookies your app might use
+      var additionalCookiesToClear = new[]
+      {
+        ".AspNetCore.Identity.Application", // If using Identity
+        "user_preferences",                 // Custom user data
+        "session_id",                      // Session cookies
+        "remember_me"                      // Remember me functionality
+    };
+
+      foreach (var cookieName in additionalCookiesToClear)
+      {
+        if (context.Request.Cookies.ContainsKey(cookieName))
+        {
+          context.Response.Cookies.Append(cookieName, "", expiredOptions);
+        }
+      }
+    }
+    public ClaimsPrincipal GetPrincipalFromExpiredToken(string token)
+    {
+      var tokenValidationParameters = new TokenValidationParameters
+      {
+        ValidateAudience = false, // might be validate the audience and issuer
+        ValidateIssuer = false,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET"))),
+        ValidateLifetime = false // here saying that we don't care about the token's expiration date
+      };
+      var tokenHandler = new JwtSecurityTokenHandler();
+      SecurityToken securityToken;
+      var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
+      var jwtSecurityToken = securityToken as JwtSecurityToken;
+      if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+        throw new SecurityTokenException("Invalid token");
+      return principal;
+    }
+
     public string? ValidateJwtToken(string? token)
     {
       if (token == null)

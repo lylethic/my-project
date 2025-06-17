@@ -55,26 +55,26 @@ public class AuthsController : ControllerBase
             return StatusCode(500, new { status = 500, message = "Internal server error" });
         }
     }
+
+
+    [Authorize]
+    [HttpPost("refresh-token")]
+    public IActionResult RefreshToken(TokenApiDto model)
+    {
+        var result = _auth.RefreshTokenAsync(model);
+        return Ok(result);
+    }
+    [Authorize]
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        _auth.LogoutAsync();
+        return Ok(new
+        {
+            status = 200,
+            message = "Logged out"
+        });
+    }
 }
-
-// [Authorize]
-// [HttpPost("refresh-token")]
-// public IActionResult RefreshToken(TokenApiDto model)
-// {
-//   var result = _auth.RefreshToken(model);
-//   return Ok(result);
-// }
-
-// [Authorize]
-// [HttpPost("logout")]
-// public IActionResult Logout()
-// {
-//   _auth.Logout();
-//   return Ok(new
-//   {
-//     status = 200,
-//     message = "Logged out"
-//   });
-// }
 
 

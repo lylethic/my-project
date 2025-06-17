@@ -106,15 +106,20 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
         return await connection.QuerySingleOrDefaultAsync<User>(sql, new { Id = id });
     }
 
-    public async Task<IEnumerable<User>> GetUsers(PaginationRequest request)
+    public async Task<(IEnumerable<User>, int records)> GetUsers(PaginationRequest request)
     {
-        var whereConditions = new List<string>();
+        var whereConditions = new List<string>()
+        {
+            "role_id NOT IN (@Role1, @Role2)"
+        };
         if (request.IsActive.HasValue)
             whereConditions.Add("is_active = @IsActive");
         if (request.LastCreatedAt.HasValue)
             whereConditions.Add("created_at < @LastCreatedAt");
 
-        var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
+        var whereClause = whereConditions.Count > 0
+            ? "WHERE " + string.Join(" AND ", whereConditions)
+            : "";
 
         var query = $"""
             SELECT id, role_id, email, first_name, last_name, created_at, updated_at, deleted_at, is_active  
@@ -124,15 +129,25 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
             LIMIT @PageSize;
          """;
 
+        // count the number of records
+        var countQuery = $"""
+            SELECT COUNT(*) 
+            FROM users
+            {whereClause};
+        """;
+
         var parameters = new
         {
+            Role1 = "678eddaa-3081-4cb8-9ab6-ac87911c44c0",
+            Role2 = "e47aa7b5-7746-401d-8162-d2f6b0cd3e67",
             request.IsActive,
             request.LastCreatedAt,
             request.PageSize
         };
 
         var users = await connection.QueryAsync<User>(query, parameters);
-        return users;
+        var totalCount = await connection.ExecuteScalarAsync<int>(countQuery, parameters);
+        return (users, totalCount);
     }
 
     public async Task<string> ExportUsersToExcel(bool? isActive = null, int? maxRows = null)

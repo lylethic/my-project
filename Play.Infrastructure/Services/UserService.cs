@@ -3,8 +3,11 @@ using System.ComponentModel.DataAnnotations;
 using System.Data;
 using System.Security.Claims;
 using System.Text.Json;
+using AutoMapper.Execution;
 using Dapper;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Logging;
 using Play.Application.DTOs;
 using Play.Domain.Entities;
@@ -16,10 +19,11 @@ using Play.Infrastructure.Repository;
 
 namespace Play.Infrastructure.Services;
 
-public class UserService(IServiceProvider services, IDbConnection connection, IRedisCacheService cache, IHttpContextAccessor httpContextAccessore, ILogger<UserService> logger) : BaseService(services), IScoped
+public class UserService(IServiceProvider services, IDbConnection connection, ICacheService cache, IHttpContextAccessor httpContextAccessore, ILogger<UserService> logger) : BaseService(services), IScoped
 {
     private readonly UserRepo _repo = new UserRepo(connection);
     private readonly RoleRepo _roleRepo = new RoleRepo(connection);
+    private readonly ICacheService _cache = cache;
 
     public async Task CreateUserAsync(CreateUserRequest request)
     {
@@ -154,10 +158,17 @@ public class UserService(IServiceProvider services, IDbConnection connection, IR
             ?? throw new InvalidOperationException("Failed to delete user.");
         return updatedUser;
     }
-    public async Task<User> GetById(string id)
+    public async Task<User?> GetById(string id)
     {
-        var user = await _repo.GetById(id)
-            ?? throw new ArgumentException("Not found.");
+        var cacheKey = $"user:{id}";
+        var user = await _cache.GetAsync<User>(cacheKey);
+        if (user != null)
+            return user;
+        user = await _repo.GetByIdAsync(id);
+        if (user != null)
+        {
+            await _cache.SetAsync(cacheKey, user, TimeSpan.FromMinutes(5));
+        }
         return user;
     }
     public async Task ImportUsersAsync(IFormFile file)
@@ -179,32 +190,15 @@ public class UserService(IServiceProvider services, IDbConnection connection, IR
     {
         var userId = httpContextAccessore.HttpContext?.User
                     .FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var cacheKey = $"users_{userId}_{request.IsActive}_{request.LastCreatedAt}_{request.PageSize}";
 
-        // 1. Try to get from cache
-        var cachedData = cache.GetData<List<UserDto>>(cacheKey);
-        if (cachedData != null)
-        {
-            return new PaginatedResponse<UserDto>
-            {
-                Data = cachedData,
-                PageSize = request.PageSize,
-                NextCursor = cachedData.LastOrDefault()?.CreatedAt
-            };
-        }
-
-        // 2. Fetch from database
-        var data = await _repo.GetUsers(request);
+        var (data, records) = await _repo.GetUsers(request);
         var result = _mapper.Map<List<UserDto>>(data);
-
-        // 3. Cache the result (for 5 minutes)
-        cache.SetData(cacheKey, result, TimeSpan.FromMinutes(5));
-        logger.LogInformation($"[CACHE] Set key: {cacheKey}, value: {JsonSerializer.Serialize(data)}");
 
         return new PaginatedResponse<UserDto>
         {
             Data = result,
             PageSize = request.PageSize,
+            Records = records,
             NextCursor = result.LastOrDefault()?.CreatedAt
         };
     }

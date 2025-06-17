@@ -4,46 +4,24 @@ networks:
 
 services:
   api_service:
-    image: myproject:latest
-    depends_on:
-      app_db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    container_name: myproject-services
-    ports:
-      - '8088:80'
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        PROJECT_PATH: 'Play.APIs/Play.APIs.csproj'
+    container_name: myproject-services
+    depends_on:
+      app_db:
+        condition: service_healthy
+      redis.cache: 
+        condition: service_started
+    ports:
+      - '8088:80'
     environment:
       - ConnectionStrings__DefaultConnection=${DB_CONNECTION}
-      - REDIS_CONNECTION=redis:6379
       - ASPNETCORE_URLS=http://+:80
       - ASPNETCORE_ENVIRONMENT=Development
     volumes:
       - .env:/app/.env     
     restart: unless-stopped
-    networks:
-      - dev
-      
-  redis:
-    image: redis:7-alpine
-    container_name: myproject-redis
-    ports:
-      - '6379:6379'
-    restart: always
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     networks:
       - dev
 
@@ -68,6 +46,14 @@ services:
     networks:
       - dev
 
+  redis.cache: 
+    image: redis:latest
+    restart: always
+    container_name: redis.cache
+    ports:
+      - '6379:6379'
+    networks:
+      - dev 
+
 volumes:
   app_data:
-  redis_data:
