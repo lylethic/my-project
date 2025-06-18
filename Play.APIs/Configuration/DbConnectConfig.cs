@@ -13,7 +13,7 @@ public static class DbConnectConfig
         var envReader = new EnvReader();
         services.AddScoped<IDbConnection>(provider =>
               {
-                  var connectionString = envReader.GetString("DB_CONNECTION") ?? conn;
+                  var connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION") ?? conn;
                   return new Npgsql.NpgsqlConnection(connectionString);
               });
         return services;

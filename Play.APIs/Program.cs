@@ -1,22 +1,20 @@
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.OpenApi.Models;
-using Play.APIs.Extensions;
 using Play.APIs.Middleware;
 using Play.Infrastructure.Common.Helpers;
 using Play.APIs.Configuration;
-using Play.Infrastructure.Common.Utilities;
 using Play.Infrastructure.Common.Caching;
 using Asp.Versioning;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerGen;
+using Play.APIs.Common;
+using Play.Infrastructure.Common.Mail;
+using DotNetEnv;
 
 var builder = WebApplication.CreateBuilder(args);
-
 {
+    Env.Load();
     var services = builder.Services;
     var jwtConfig = new JwtConfig();
-    var envReader = new EnvReader();
 
     services.AddSingleton<JwtConfig>();
 
@@ -44,10 +42,6 @@ var builder = WebApplication.CreateBuilder(args);
     // configure strongly typed settings object
     services.Configure<DbSettings>(builder.Configuration.GetSection("DbSettings"));
 
-    services.AddResponseCaching();
-
-    services.AddCors();
-
     // Add API versioning
     services.AddApiVersioning(
         options =>
@@ -67,14 +61,26 @@ var builder = WebApplication.CreateBuilder(args);
     services.AddEndpointsApiExplorer();
     services.AddSwaggerGen();
 
+    // Configure Gmail options from environment variables
+    services.Configure<GmailOptions>(options =>
+    {
+        options.Host = Environment.GetEnvironmentVariable("GMAIL_HOST");
+        options.Port = int.Parse(Environment.GetEnvironmentVariable("GMAIL_PORT"));
+        options.Email = Environment.GetEnvironmentVariable("GMAIL_EMAIL") ?? "";
+        options.Password = Environment.GetEnvironmentVariable("GMAIL_PASSWORD") ?? "";
+    });
+
     // Add HttpContextAccessor service
     services.AddHttpContextAccessor();
     services.AddMemoryCache();
 
     // DI
-    builder.Services.AddScoped<ICacheService, RedisCacheService>();
     // services.AddSingleton<DataContext>();
     builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
+
+    services.AddResponseCaching();
+
+    services.AddCors();
 
     // Add logging configuration
     builder.Logging.ClearProviders();
@@ -125,7 +131,6 @@ if (app.Environment.IsDevelopment())
     app.UseAuthorization();
 
     app.MapControllers();
-
 }
 
 app.Run();

@@ -1,26 +1,20 @@
 # Run API in here:
 
 - cd `myproject\Play.APIs`
-- run: `dotnet run`
-
-## Account (owner)
-
-- email: ly@gmail.com
-- password: Aa@123123
+- run: `dotnet run` or `dotnet watch run`
+- docker: `build: docker-compose build | run: docker-compose up`
 
 # Project Structure
 
+```
 myproject/
 ├── Play.APIs/
+| ├── Configuration/
 │ ├── Controllers/
 │ ├── Middleware/
 │ ├── Properties/
-│ ├── appsettings-example.json
 │ ├── appsettings.Development.json
 │ ├── appsettings.json
-│ ├── Play.APIs.csproj
-│ ├── Play.APIs.csproj.user
-│ ├── Play.APIs.http
 │ └── Program.cs
 │
 ├── Play.Application/
@@ -34,7 +28,9 @@ myproject/
 │ └── Play.Domain.csproj
 │
 ├── Play.Infrastructure/
+| ├── AutoMappers/
 │ ├── Data/
+| ├── Common/
 │ ├── Helpers/
 │ ├── Migrations/
 │ ├── Repository/
@@ -49,6 +45,7 @@ myproject/
 ├── Play.API.sln
 │
 └── README.md
+```
 
 ## Explanation of the Structure
 
@@ -56,6 +53,7 @@ myproject/
 
 Contains the API layer, with subdirectories for:
 
+- **Configuration/**: These settings can include things like database connection strings, API keys, logging configurations, and environment-specific settings.
 - **Controllers/**: Handles incoming requests and returns responses.
 - **Middleware/**: Custom middleware components for processing requests.
 - **Properties/**: Contains project properties.
@@ -80,6 +78,8 @@ Contains domain entities and the project file:
 
 Manages data access and related components:
 
+- **AutoMappers/**: It maps the properties of two different objects by transforming the input object of one type to the output object of another.
+- **Common/**: common setting such as Contracts, Helpers, Utils,...
 - **Data/**: Data access layer implementations.
 - **Helpers/**: Utility classes and methods.
 - **Migrations/**: Database migration files.
@@ -87,20 +87,3 @@ Manages data access and related components:
 - **Service/**: eg: RoleService,...
 - **Repository/**: Implementation of repository patterns.
 - **Play.Infrastructure.csproj**: The project file for the infrastructure layer.
-
-### Migration database
-
-- dotnet ef migrations add Init --project .\Play.Infrastructure\Play.Infrastructure.csproj --startup-project .\Play.APIs\Play.APIs.csproj --output-dir Migrations
-
-- Key Parameters:
-  --project: Infrastructure project path
-  --startup-project: API project containing appsettings.json
-  --output-dir: Migration folder location
-
-### Update Database
-
-- dotnet ef database update --project .\Play.Infrastructure\Play.Infrastructure.csproj --startup-project .\Play.APIs\Play.APIs.csproj
-
-### Redis (docker)
-
-- Use redis-cli inside the container: `docker exec -it myproject-redis redis-cli`

@@ -14,16 +14,15 @@ using Play.Domain.Entities;
 using Play.Infrastructure.Common.Caching;
 using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Services;
-using Play.Infrastructure.Common.Utilities;
 using Play.Infrastructure.Repository;
 
 namespace Play.Infrastructure.Services;
 
-public class UserService(IServiceProvider services, IDbConnection connection, ICacheService cache, IHttpContextAccessor httpContextAccessore, ILogger<UserService> logger) : BaseService(services), IScoped
+public class UserService(IServiceProvider services, IDbConnection connection, IDistributedCache cache, IHttpContextAccessor httpContextAccessore, ILogger<UserService> logger) : BaseService(services), IScoped
 {
     private readonly UserRepo _repo = new UserRepo(connection);
     private readonly RoleRepo _roleRepo = new RoleRepo(connection);
-    private readonly ICacheService _cache = cache;
+    private readonly IDistributedCache _cache = cache;
 
     public async Task CreateUserAsync(CreateUserRequest request)
     {
@@ -160,16 +159,7 @@ public class UserService(IServiceProvider services, IDbConnection connection, IC
     }
     public async Task<User?> GetById(string id)
     {
-        var cacheKey = $"user:{id}";
-        var user = await _cache.GetAsync<User>(cacheKey);
-        if (user != null)
-            return user;
-        user = await _repo.GetByIdAsync(id);
-        if (user != null)
-        {
-            await _cache.SetAsync(cacheKey, user, TimeSpan.FromMinutes(5));
-        }
-        return user;
+        return await _repo.GetByIdAsync(id);
     }
     public async Task ImportUsersAsync(IFormFile file)
     {
@@ -188,10 +178,10 @@ public class UserService(IServiceProvider services, IDbConnection connection, IC
     }
     public async Task<PaginatedResponse<UserDto>> GetUsersAsync(PaginationRequest request)
     {
-        var userId = httpContextAccessore.HttpContext?.User
-                    .FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        var (data, records) = await _repo.GetUsers(request);
+        var roleName = httpContextAccessore.HttpContext?.User
+                    .FindFirst(ClaimTypes.Role)?.Value;
+        if (roleName is null) throw new Exception("Role not found.");
+        var (data, records) = await _repo.GetUsers(request, roleName);
         var result = _mapper.Map<List<UserDto>>(data);
 
         return new PaginatedResponse<UserDto>

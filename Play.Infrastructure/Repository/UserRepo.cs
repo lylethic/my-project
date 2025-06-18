@@ -10,7 +10,6 @@ using Play.Application.DTOs;
 using Play.Domain.Entities;
 using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Repositories;
-using Play.Infrastructure.Common.Utilities;
 
 namespace Play.Infrastructure.Repository;
 
@@ -106,12 +105,28 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
         return await connection.QuerySingleOrDefaultAsync<User>(sql, new { Id = id });
     }
 
-    public async Task<(IEnumerable<User>, int records)> GetUsers(PaginationRequest request)
+    public async Task<(IEnumerable<User>, int records)> GetUsers(PaginationRequest request, string roleName)
     {
-        var whereConditions = new List<string>()
+        var whereConditions = new List<string>();
+        var parameters = new Dictionary<string, object>
+    {
+        { "IsActive", request.IsActive },
+        { "LastCreatedAt", request.LastCreatedAt },
+        { "PageSize", request.PageSize }
+    };
+
+        // Apply role filtering based on current user's role
+        if (roleName == "owner" || roleName == "admin")
         {
-            "role_id NOT IN (@Role1, @Role2)"
-        };
+            // Owner and Admin can see users except other owners and admins
+            whereConditions.Add("role_id NOT IN (@Role1, @Role2)");
+            parameters.Add("Role1", "b4008cf7-8089-4c2d-a6e7-7427f1ee4b75");
+            parameters.Add("Role2", "82689235-e3c8-4615-9408-7385341c7219");
+        }
+        // If user is not owner or admin, you might want to add other conditions
+        // or return empty results, depending on your business logic
+
+        // Add other conditions
         if (request.IsActive.HasValue)
             whereConditions.Add("is_active = @IsActive");
         if (request.LastCreatedAt.HasValue)
@@ -122,28 +137,19 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
             : "";
 
         var query = $"""
-            SELECT id, role_id, email, first_name, last_name, created_at, updated_at, deleted_at, is_active  
-            FROM users
-            {whereClause}
-            ORDER BY created_at DESC
-            LIMIT @PageSize;
-         """;
+        SELECT id, role_id, email, first_name, last_name, created_at, updated_at, deleted_at, is_active  
+        FROM users
+        {whereClause}
+        ORDER BY created_at DESC
+        LIMIT @PageSize;
+     """;
 
         // count the number of records
         var countQuery = $"""
-            SELECT COUNT(*) 
-            FROM users
-            {whereClause};
-        """;
-
-        var parameters = new
-        {
-            Role1 = "678eddaa-3081-4cb8-9ab6-ac87911c44c0",
-            Role2 = "e47aa7b5-7746-401d-8162-d2f6b0cd3e67",
-            request.IsActive,
-            request.LastCreatedAt,
-            request.PageSize
-        };
+        SELECT COUNT(*) 
+        FROM users
+        {whereClause};
+    """;
 
         var users = await connection.QueryAsync<User>(query, parameters);
         var totalCount = await connection.ExecuteScalarAsync<int>(countQuery, parameters);

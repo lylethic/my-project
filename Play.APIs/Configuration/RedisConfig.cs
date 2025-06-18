@@ -1,7 +1,6 @@
 using System;
 using Microsoft.Extensions.Caching.Distributed;
 using Play.Infrastructure.Common.Caching;
-using Play.Infrastructure.Common.Utilities;
 
 namespace Play.APIs.Configuration;
 

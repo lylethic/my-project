@@ -3,9 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
-# sensitive key
-# Play.APIs/appsettings.json
-
+# dotenv files
+.env
+.vscode/
+.idea/
+.cursorignore
 # User-specific files
 *.suo
 *.user
@@ -48,6 +50,15 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 **/Properties/launchSettings.json
+
+# Tye
+.tye/
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# StyleCop
+StyleCopReport.xml
 
 # VS Code
 .vscode/

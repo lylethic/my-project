@@ -2,9 +2,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Play.Application.DTOs;
-using Play.Application.IRepository;
+using Play.Infrastructure.Common.Abstracts;
+using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Services;
-using System.Diagnostics;
 
 namespace Play.APIs.Controllers.v1;
 
@@ -13,12 +13,12 @@ namespace Play.APIs.Controllers.v1;
 [ApiController]
 public class AuthsController : ControllerBase
 {
-    private readonly AuthService _auth;
+    private readonly AuthService _authService;
     private readonly ILogger<AuthsController> _logger;
 
     public AuthsController(AuthService auth, ILogger<AuthsController> logger)
     {
-        _auth = auth;
+        _authService = auth;
         _logger = logger;
     }
 
@@ -28,7 +28,7 @@ public class AuthsController : ControllerBase
     {
         try
         {
-            var result = await _auth.LoginAsync(model);
+            var result = await _authService.LoginAsync(model);
 
             if (result.StatusCode != 200)
             {
@@ -61,20 +61,34 @@ public class AuthsController : ControllerBase
     [HttpPost("refresh-token")]
     public IActionResult RefreshToken(TokenApiDto model)
     {
-        var result = _auth.RefreshTokenAsync(model);
+        var result = _authService.RefreshTokenAsync(model);
         return Ok(result);
     }
     [Authorize]
     [HttpPost("logout")]
     public IActionResult Logout()
     {
-        _auth.LogoutAsync();
+        _authService.LogoutAsync();
         return Ok(new
         {
             status = 200,
             message = "Logged out"
         });
     }
+
+    [Authorize]
+    [HttpPost("send-reset-code")]
+    public async Task<IActionResult> SendResetCode([FromBody] string email)
+    {
+        var result = await _authService.SendResetCodeAsync(email);
+        return Ok(new { status = 200, message = result });
+    }
+
+    [HttpPost("confirm-reset")]
+    public async Task<IActionResult> ConfirmResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var result = await _authService.ConfirmResetPasswordAsync(request);
+
+        return Ok(new { status = 200, message = result });
+    }
 }
-
-

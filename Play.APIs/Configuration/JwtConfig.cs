@@ -1,8 +1,8 @@
 using System;
 using System.Text;
+using DotNetEnv;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Play.Infrastructure.Common.Utilities;
 
 namespace Play.APIs.Configuration;
 
@@ -16,12 +16,28 @@ public class JwtConfig
 
     public JwtConfig()
     {
-        var envReader = new EnvReader();
-        Secret = envReader.GetString("API_SECRET");
-        Issuer = envReader.GetString("JWT_ISSUER");
-        Audience = envReader.GetString("JWT_AUDIENCE");
-        ExpiryHours = envReader.GetInt("JWT_EXPIRY_HOURS");
-        RefreshExpiryHours = envReader.GetInt("JWT_REFRESH_EXPIRY_HOURS");
+        Env.Load();
+
+        Secret = Environment.GetEnvironmentVariable("API_SECRET")
+                 ?? throw new ArgumentNullException("API_SECRET is not set.");
+        Issuer = Environment.GetEnvironmentVariable("JWT_ISSUER")
+                 ?? throw new ArgumentNullException("JWT_ISSUER is not set.");
+        Audience = Environment.GetEnvironmentVariable("JWT_AUDIENCE")
+                 ?? throw new ArgumentNullException("JWT_AUDIENCE is not set.");
+
+        // Safe parsing with fallback default values
+        if (!int.TryParse(Environment.GetEnvironmentVariable("JWT_EXPIRY_HOURS"), out int expiry))
+        {
+            expiry = 1; // default to 1 hour if not set
+        }
+
+        if (!int.TryParse(Environment.GetEnvironmentVariable("JWT_REFRESH_EXPIRY_HOURS"), out int refreshExpiry))
+        {
+            refreshExpiry = 24; // default to 24 hours if not set
+        }
+
+        ExpiryHours = expiry;
+        RefreshExpiryHours = refreshExpiry;
     }
 }
 
@@ -29,7 +45,6 @@ public static class AuthenticationConfig
 {
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration config)
     {
-        var envReader = new EnvReader();
         var jwtConfig = new JwtConfig();
 
         services.AddAuthentication(options =>
@@ -44,7 +59,7 @@ public static class AuthenticationConfig
             {
                 OnMessageReceived = context =>
                 {
-                    var cookieName = envReader.GetString("ACCESSTOKEN_COOKIENAME");
+                    var cookieName = Environment.GetEnvironmentVariable("ACCESSTOKEN_COOKIENAME");
                     var accessToken = context.Request.Cookies[cookieName];
                     if (!string.IsNullOrEmpty(accessToken))
                     {

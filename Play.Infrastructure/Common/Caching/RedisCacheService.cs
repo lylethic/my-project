@@ -5,9 +5,6 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 
-using Microsoft.Extensions.Caching.Distributed;
-using System.Text.Json;
-
 namespace Play.Infrastructure.Common.Caching;
 
 public interface ICacheService

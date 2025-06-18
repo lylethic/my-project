@@ -8,26 +8,32 @@ using System.Threading.Tasks;
 using Dapper;
 using ExcelDataReader.Log;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Play.Application.DTOs;
 using Play.Domain.Entities;
+using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Helpers;
 using Play.Infrastructure.Common.Repositories;
 using Play.Infrastructure.Common.Utilities;
+using Play.Infrastructure.Services;
 
 namespace Play.Infrastructure.Repository
 {
   public class AuthRepository : SimpleCrudRepositories<User, string>
   {
     private readonly IDbConnection _connection;
-    private readonly EnvReader _envReader;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    public AuthRepository(IDbConnection connection, IHttpContextAccessor httpContextAccessor) : base(connection)
+    private readonly IMemoryCache _memoryCache;
+    private readonly GmailService _mailService;
+
+    public AuthRepository(IDbConnection connection, IHttpContextAccessor httpContextAccessor, IMemoryCache memoryCache, GmailService mailService) : base(connection)
     {
-      _connection = connection;
-      _envReader = new EnvReader();
-      _httpContextAccessor = httpContextAccessor;
+      this._connection = connection;
+      this._httpContextAccessor = httpContextAccessor;
+      this._memoryCache = memoryCache;
+      this._mailService = mailService;
     }
 
     public async Task<ResponseData<AuthResponse>> Login(AuthenticateDto model)
@@ -57,16 +63,16 @@ namespace Play.Infrastructure.Repository
                 {
                     new(ClaimTypes.NameIdentifier, user.Id),
                     new(ClaimTypes.Email, user.Email),
-                    new(ClaimTypes.Role, roleName?? "user")
+                    new(ClaimTypes.Role, roleName ?? string.Empty)
                 };
         // Generate tokens
         var accessToken = GenerateAccessToken(claims);
-        var tokenExpiredTime = DateTime.Now.AddHours(_envReader.GetInt("JWT_EXPIRY_HOURS"));
+        var tokenExpiredTime = DateTime.Now.AddHours(double.Parse(Environment.GetEnvironmentVariable("JWT_EXPIRY_HOURS")));
         var refreshToken = GenerateRefreshToken(claims);
-        var refreshTokenExpiredTime = DateTime.Now.AddHours(_envReader.GetInt("JWT_REFRESH_EXPIRY_HOURS"));
+        var refreshTokenExpiredTime = DateTime.Now.AddHours(double.Parse(Environment.GetEnvironmentVariable("JWT_REFRESH_EXPIRY_HOURS")));
         // Set cookies
-        SetJWTTokenCookie(_envReader.GetString("ACCESSTOKEN_COOKIENAME"), _envReader.GetString("ACCESSTOKEN_EXPIRY_NAME"), accessToken, tokenExpiredTime);
-        SetJWTTokenCookie(_envReader.GetString("REFRESHTOKEN_COOKIENAME"), _envReader.GetString("REFRESHTOKEN_EXPIRY_NAME"), refreshToken, refreshTokenExpiredTime);
+        SetJWTTokenCookie(Environment.GetEnvironmentVariable("ACCESSTOKEN_COOKIENAME"), Environment.GetEnvironmentVariable("ACCESSTOKEN_EXPIRY_NAME"), accessToken, tokenExpiredTime);
+        SetJWTTokenCookie(Environment.GetEnvironmentVariable("REFRESHTOKEN_COOKIENAME"), Environment.GetEnvironmentVariable("REFRESHTOKEN_EXPIRY_NAME"), refreshToken, refreshTokenExpiredTime);
         return ResponseData<AuthResponse>.Success(
           accessToken,
           tokenExpiredTime,
@@ -115,7 +121,7 @@ namespace Play.Infrastructure.Repository
 
         // 3. Generate new access token
         var newAccessToken = GenerateAccessToken(principal.Claims);
-        var newAccessTokenExpire = DateTime.UtcNow.AddHours(Convert.ToInt16(_envReader.GetString("JWT_EXPIRY_HOURS")));
+        var newAccessTokenExpire = DateTime.UtcNow.AddHours(Convert.ToInt16(Environment.GetEnvironmentVariable("JWT_EXPIRY_HOURS")));
 
         // 4. Set new access token cookie
         SetJWTTokenCookie("access_token", "access_token_expire", newAccessToken, newAccessTokenExpire);
@@ -142,10 +148,10 @@ namespace Play.Infrastructure.Repository
       try
       {
         // Get cookie names from environment (same as login)
-        var accessTokenCookieName = _envReader.GetString("ACCESSTOKEN_COOKIENAME") ?? "access_token";
-        var accessTokenExpiryCookieName = _envReader.GetString("ACCESSTOKEN_EXPIRY_NAME") ?? "access_token_expire";
-        var refreshTokenCookieName = _envReader.GetString("REFRESHTOKEN_COOKIENAME") ?? "refresh_token";
-        var refreshTokenExpiryCookieName = _envReader.GetString("REFRESHTOKEN_EXPIRY_NAME") ?? "refresh_token_expire";
+        var accessTokenCookieName = Environment.GetEnvironmentVariable("ACCESSTOKEN_COOKIENAME") ?? "access_token";
+        var accessTokenExpiryCookieName = Environment.GetEnvironmentVariable("ACCESSTOKEN_EXPIRY_NAME") ?? "access_token_expire";
+        var refreshTokenCookieName = Environment.GetEnvironmentVariable("REFRESHTOKEN_COOKIENAME") ?? "refresh_token";
+        var refreshTokenExpiryCookieName = Environment.GetEnvironmentVariable("REFRESHTOKEN_EXPIRY_NAME") ?? "refresh_token_expire";
 
         // Create expired cookie options for HttpOnly cookies (secure tokens)
         var secureExpiredOptions = new CookieOptions
@@ -186,8 +192,62 @@ namespace Play.Infrastructure.Repository
         return Task.FromResult(ResponseData<UserDto>.Fail($"Logout failed: {ex.Message}", 500));
       }
     }
+
+    // Reset password
+
+    public async Task<string> SendResetCode(string userEmail)
+    {
+      try
+      {
+        // Step 1: Generate random code
+        var resetCode = RandomNumber.GenerateRandomNumberList(6);
+
+        // Step 2: Cache the code for later verification
+        _memoryCache.Set($"ResetCode:{userEmail}", resetCode, TimeSpan.FromMinutes(5));
+
+        // Step 3: Email the code to user
+        var subject = "Your Password Reset Code";
+        var body = $"Hello,\n\nUse the following code to reset your password: {resetCode}\n\nThis code will expire in 5 minutes.\n\nThanks,\nLoopy Team!";
+        var emailRequest = new SendEmailRequest(userEmail, subject, body);
+        await _mailService.SendEmailAsync(emailRequest);
+
+        return "Reset code sent successfully. Please check your email.";
+      }
+      catch (Exception ex)
+      {
+        throw new Exception($"Failed to send reset code: {ex.Message}");
+      }
+    }
+
+    public async Task<string> ConfirmResetPassword(ResetPasswordRequest request)
+    {
+      try
+      {
+        if (_memoryCache.TryGetValue($"ResetCode:{request.Email}", out string cachedCode) && cachedCode == request.Code)
+        {
+          // Code valid – update password
+          string hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+          string sql = "UPDATE users SET password = @password WHERE email = @email";
+          int affected = await _connection.ExecuteAsync(sql, new { password = hashedPassword, email = request.Email });
+
+          _memoryCache.Remove($"ResetCode:{request.Email}");
+
+          if (affected > 0)
+            return "Password has been reset successfully.";
+          else
+            throw new Exception("Failed to update password.");
+        }
+
+        throw new Exception("Invalid or expired reset code.");
+      }
+      catch (Exception ex)
+      {
+        throw new Exception($"Reset failed: {ex.Message}");
+      }
+    }
+
     // HELPER METHOD: Clear additional authentication cookies
-    private void ClearAdditionalAuthCookies(HttpContext context, CookieOptions expiredOptions)
+    private static void ClearAdditionalAuthCookies(HttpContext context, CookieOptions expiredOptions)
     {
       // Clear any other auth-related cookies your app might use
       var additionalCookiesToClear = new[]
@@ -213,7 +273,7 @@ namespace Play.Infrastructure.Repository
         ValidateAudience = false, // might be validate the audience and issuer
         ValidateIssuer = false,
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET"))),
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("API_SECRET"))),
         ValidateLifetime = false // here saying that we don't care about the token's expiration date
       };
       var tokenHandler = new JwtSecurityTokenHandler();
@@ -231,7 +291,7 @@ namespace Play.Infrastructure.Repository
         return null;
 
       var tokenHandler = new JwtSecurityTokenHandler();
-      var key = Encoding.ASCII.GetBytes(_envReader.GetString("API_SECRET"));
+      var key = Encoding.ASCII.GetBytes(Environment.GetEnvironmentVariable("API_SECRET"));
       try
       {
         tokenHandler.ValidateToken(token, new TokenValidationParameters
@@ -259,13 +319,13 @@ namespace Play.Infrastructure.Repository
 
     private string GenerateAccessToken(IEnumerable<Claim> claims)
     {
-      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET")));
+      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("API_SECRET")));
       var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
       var token = new JwtSecurityToken(
-          issuer: _envReader.GetString("JWT_ISSUER"),
-          audience: _envReader.GetString("JWT_AUDIENCE"),
+          issuer: Environment.GetEnvironmentVariable("JWT_ISSUER"),
+          audience: Environment.GetEnvironmentVariable("JWT_AUDIENCE"),
           claims: claims,
-          expires: DateTime.UtcNow.AddHours(_envReader.GetInt("JWT_EXPIRY_HOURS")),
+          expires: DateTime.UtcNow.AddHours(double.Parse(Environment.GetEnvironmentVariable("JWT_EXPIRY_HOURS"))),
           signingCredentials: creds
       );
       return new JwtSecurityTokenHandler().WriteToken(token);
@@ -273,13 +333,13 @@ namespace Play.Infrastructure.Repository
 
     private string GenerateRefreshToken(IEnumerable<Claim> claims)
     {
-      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_envReader.GetString("API_SECRET")));
+      var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("API_SECRET")));
       var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
       var token = new JwtSecurityToken(
-          issuer: _envReader.GetString("JWT_ISSUER"),
-          audience: _envReader.GetString("JWT_AUDIENCE"),
+          issuer: Environment.GetEnvironmentVariable("JWT_ISSUER"),
+          audience: Environment.GetEnvironmentVariable("JWT_AUDIENCE"),
           claims: claims,
-          expires: DateTime.UtcNow.AddHours(_envReader.GetInt("JWT_REFRESH_EXPIRY_HOURS")),
+          expires: DateTime.UtcNow.AddHours(double.Parse(Environment.GetEnvironmentVariable("JWT_REFRESH_EXPIRY_HOURS"))),
           signingCredentials: creds
       );
       return new JwtSecurityTokenHandler().WriteToken(token);

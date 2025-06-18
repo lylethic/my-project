@@ -1,17 +1,19 @@
 using System;
 using System.Data;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Play.Application.DTOs;
+using Play.Infrastructure.Common.Abstracts;
 using Play.Infrastructure.Common.Contracts;
 using Play.Infrastructure.Common.Services;
 using Play.Infrastructure.Repository;
 
 namespace Play.Infrastructure.Services;
 
-public class AuthService(IServiceProvider services, IDbConnection connection, IHttpContextAccessor httpContextAccessor) : BaseService(services), IScoped
+public class AuthService(IServiceProvider services, IDbConnection connection, IHttpContextAccessor httpContextAccessor, GmailService mailService, IMemoryCache memoryCache) : BaseService(services), IScoped
 {
-    private readonly AuthRepository _repo = new AuthRepository(connection, httpContextAccessor);
+    private readonly AuthRepository _repo = new(connection, httpContextAccessor, memoryCache, mailService);
 
     public async Task<ResponseData<AuthResponse>> LoginAsync(AuthenticateDto model)
     {
@@ -36,5 +38,15 @@ public class AuthService(IServiceProvider services, IDbConnection connection, IH
     public Task<ResponseData<UserDto>> LogoutAsync()
     {
         return _repo.Logout();
+    }
+
+    public async Task<string> SendResetCodeAsync(string userEmail)
+    {
+        return await _repo.SendResetCode(userEmail);
+    }
+
+    public async Task<string> ConfirmResetPasswordAsync(ResetPasswordRequest request)
+    {
+        return await _repo.ConfirmResetPassword(request);
     }
 }
