@@ -26,7 +26,7 @@ public class CreateRequest
     [Compare("Password")]
     public string? ConfirmPassword { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? UpdatedAt { get; set; } = null;
     public DateTime? DeletedAt { get; set; } = null;
     public bool IsActive { get; set; } = true;

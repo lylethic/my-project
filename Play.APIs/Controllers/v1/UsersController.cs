@@ -10,7 +10,7 @@ namespace Play.APIs.Controllers.v1;
 
 [Route("api/users")]
 [ApiController]
-[Authorize]
+// [Authorize]
 public class UsersController : ControllerBase
 {
     private readonly UserService _userService;
@@ -53,7 +53,7 @@ public class UsersController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Policy = "RequireOwnerAdminRole")]
+    // [Authorize(Policy = "RequireOwnerAdminRole")]
     [HttpPost]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
     {

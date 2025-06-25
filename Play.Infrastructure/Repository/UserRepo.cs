@@ -291,7 +291,7 @@ public class UserRepo(IDbConnection connection) : SimpleCrudRepositories<User, s
                 LastName = row[2].ToString() ?? throw new ArgumentException("LastName cannot be null"),
                 Email = row[3].ToString() ?? throw new ArgumentException("Email cannot be null"),
                 Password = BCrypt.Net.BCrypt.HashPassword(row[4].ToString()), // Hash password
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.Now,
                 UpdatedAt = null,
                 DeletedAt = null,
                 IsActive = true

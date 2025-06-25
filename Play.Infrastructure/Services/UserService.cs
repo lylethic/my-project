@@ -49,19 +49,8 @@ public class UserService(IServiceProvider services, IDbConnection connection, ID
                 throw new ArgumentException("Email is already in use by another user.");
         }
 
-        var user = new User
-        {
-            Id = Guid.NewGuid().ToString(),
-            RoleId = request.RoleId,
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
-            Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            CreatedAt = DateTime.Now,
-            UpdatedAt = null,
-            DeletedAt = null,
-            IsActive = true
-        };
+        var user = _mapper.Map<User>(request);
+        user.Id = Guid.NewGuid().ToString();
 
         await _repo.Create(user);
     }
@@ -167,7 +156,7 @@ public class UserService(IServiceProvider services, IDbConnection connection, ID
         {
             await _repo.ImportUsersFromExcel(file);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
             throw new ArgumentException($"Error importing user.");
         }

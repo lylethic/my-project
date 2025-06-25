@@ -30,24 +30,16 @@ public class AuthsController : ControllerBase
         {
             var result = await _authService.LoginAsync(model);
 
-            if (result.StatusCode != 200)
+            if (result.Status != 200)
             {
-                return StatusCode(result.StatusCode, new
+                return StatusCode(result.Status, new
                 {
-                    status = result.StatusCode,
+                    status = result.Status,
                     message = result.Message
                 });
             }
 
-            return Ok(new
-            {
-                status = result.StatusCode,
-                message = result.Message,
-                token = result.Token,
-                expireTime = result.TokenExpiredTime,
-                refreshToken = result.RefreshToken,
-                refreshTokenExpireTime = result.RefreshTokenExpiredTime
-            });
+            return Ok(result);
         }
         catch (Exception ex)
         {
@@ -59,9 +51,9 @@ public class AuthsController : ControllerBase
 
     [Authorize]
     [HttpPost("refresh-token")]
-    public IActionResult RefreshToken(TokenApiDto model)
+    public IActionResult RefreshToken(string token)
     {
-        var result = _authService.RefreshTokenAsync(model);
+        var result = _authService.RefreshTokenAsync(token);
         return Ok(result);
     }
     [Authorize]
@@ -78,13 +70,13 @@ public class AuthsController : ControllerBase
 
     [Authorize]
     [HttpPost("send-reset-code")]
-    public async Task<IActionResult> SendResetCode([FromBody] string email)
+    public async Task<IActionResult> SendResetCode(string email)
     {
         var result = await _authService.SendResetCodeAsync(email);
         return Ok(new { status = 200, message = result });
     }
 
-    [HttpPost("confirm-reset")]
+    [HttpPost("confirm-reset-password")]
     public async Task<IActionResult> ConfirmResetPassword([FromBody] ResetPasswordRequest request)
     {
         var result = await _authService.ConfirmResetPasswordAsync(request);

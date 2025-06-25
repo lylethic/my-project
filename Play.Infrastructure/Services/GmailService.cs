@@ -22,17 +22,21 @@ public class GmailService : IMailService, IScoped
         {
             From = new MailAddress(_gmailOptions.Email),
             Subject = request.Subject,
-            Body = request.Body
+            Body = request.Body,
+            IsBodyHtml = true
         };
 
         mailMessage.To.Add(new MailAddress(request.Recipient));
 
-        using var smtpClient = new SmtpClient();
-        smtpClient.Host = _gmailOptions.Host;
-        smtpClient.Port = _gmailOptions.Port;
-        smtpClient.Credentials = new NetworkCredential(
-            _gmailOptions.Email, _gmailOptions.Password);
-        smtpClient.EnableSsl = true;
+        using var smtpClient = new SmtpClient
+        {
+            Host = _gmailOptions.Host,
+            Port = _gmailOptions.Port,
+            Credentials = new NetworkCredential(
+            _gmailOptions.Email, _gmailOptions.Password),
+            EnableSsl = true
+        };
+
         await smtpClient.SendMailAsync(mailMessage);
     }
 }

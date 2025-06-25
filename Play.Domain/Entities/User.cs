@@ -12,7 +12,7 @@ namespace Play.Domain.Entities
     public string LastName { get; set; }
     public string Email { get; set; }
     public string Password { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? UpdatedAt { get; set; } = null;
     public DateTime? DeletedAt { get; set; } = null;
     public bool IsActive { get; set; } = true;
