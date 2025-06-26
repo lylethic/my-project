@@ -9,6 +9,7 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 using Play.APIs.Common;
 using Play.Infrastructure.Common.Mail;
 using DotNetEnv;
+using Microsoft.AspNetCore.HttpLogging;
 
 var builder = WebApplication.CreateBuilder(args);
 {
@@ -76,7 +77,7 @@ var builder = WebApplication.CreateBuilder(args);
 
     // DI
     // services.AddSingleton<DataContext>();
-    builder.Services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
+    services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
 
     services.AddResponseCaching();
 
@@ -86,6 +87,11 @@ var builder = WebApplication.CreateBuilder(args);
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(); // Logs to terminal
     builder.Logging.AddDebug();
+
+    services.AddHttpLogging(logging =>
+    {
+        logging.LoggingFields = HttpLoggingFields.All;
+    });
 }
 
 var app = builder.Build();
@@ -122,6 +128,8 @@ if (app.Environment.IsDevelopment())
     // Automatically get a token from a cookie and
     //set it in the Authorization header for every request.
     app.UseMiddleware<CookieJwtInjectorMiddleware>();
+
+    app.UseMiddleware<InterceptorHttpLoggingMiddleware>();
 
     // global error handler
     app.UseMiddleware<ErrorHandlingMiddleware>();

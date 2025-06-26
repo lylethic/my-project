@@ -10,6 +10,7 @@ public class UserProfile : Profile
     public UserProfile()
     {
         CreateMap<User, UserDto>();
+        CreateMap<CreateUserRequest, User>();
         CreateMap<UpdateUserRequest, User>()
         .ForAllMembers(x => x.Condition(
             (src, dest, prop) =>

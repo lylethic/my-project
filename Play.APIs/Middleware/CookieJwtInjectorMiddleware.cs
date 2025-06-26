@@ -20,7 +20,6 @@ public class CookieJwtInjectorMiddleware
       if (!string.IsNullOrEmpty(token))
       {
         context.Request.Headers.Append("Authorization", $"Bearer {token}");
-        _logger.LogInformation("JWT injected from access_token cookie.");
       }
       else
       {

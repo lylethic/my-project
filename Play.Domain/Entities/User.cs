@@ -1,11 +1,10 @@
 ﻿using Dapper.Contrib.Extensions;
 
-namespace Play.Domain.Entities
+namespace Play.Domain.Entities;
+
+[Table("users")]
+public class User
 {
-  [Table("users")]
-  public class User
-  {
-    [Key]
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string RoleId { get; set; }
     public string FirstName { get; set; }
@@ -16,5 +15,4 @@ namespace Play.Domain.Entities
     public DateTime? UpdatedAt { get; set; } = null;
     public DateTime? DeletedAt { get; set; } = null;
     public bool IsActive { get; set; } = true;
-  }
 }

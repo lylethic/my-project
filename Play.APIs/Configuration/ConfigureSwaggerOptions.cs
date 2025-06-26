@@ -24,9 +24,9 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
     {
         var info = new OpenApiInfo
         {
-            Title = "API Title",
+            Title = "APIs",
             Version = description.ApiVersion.ToString(),
-            Description = "API Description. This API version has been deprecated."
+            Description = "API Challenge",
         };
         return info;
     }

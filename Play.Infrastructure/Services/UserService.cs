@@ -37,9 +37,8 @@ public class UserService(IServiceProvider services, IDbConnection connection, ID
         if (string.IsNullOrWhiteSpace(request.Password))
             throw new ArgumentException("Password is required.");
 
-        var role = await _roleRepo.GetById(request.RoleId);
-        if (role is null)
-            throw new ArgumentException("Invalid Role ID: Role does not exist.");
+        var role = await _roleRepo.GetById(request.RoleId)
+            ?? throw new ArgumentException("Invalid Role ID: Role does not exist.");
 
         // Validate Email uniqueness if provided
         if (!string.IsNullOrWhiteSpace(request.Email))
